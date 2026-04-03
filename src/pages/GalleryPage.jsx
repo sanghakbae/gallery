@@ -157,6 +157,27 @@ export default function GalleryPage() {
     return source.find((photo) => photo.id === selectedPhotoId) ?? null;
   }, [photos, selectedPhotoId]);
 
+  function openPhoto(event, photoId) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    window.setTimeout(() => {
+      setSelectedPhotoId(photoId);
+    }, 0);
+  }
+
+  function closePhoto() {
+    setSelectedPhotoId(null);
+  }
+
+  function handleBackdropClick(event) {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
+    closePhoto();
+  }
+
   return (
     <div className="app-shell">
       <div className="background-orb orb-left" />
@@ -220,7 +241,7 @@ export default function GalleryPage() {
             <button
               type="button"
               className="photo-open-button"
-              onClick={() => setSelectedPhotoId(photo.id)}
+              onClick={(event) => openPhoto(event, photo.id)}
               aria-label={`${photo.title} 크게 보기`}
             >
               <div className="photo-frame">
@@ -261,7 +282,7 @@ export default function GalleryPage() {
       {selectedPhoto ? (
         <div
           className="photo-modal-backdrop"
-          onClick={() => setSelectedPhotoId(null)}
+          onClick={handleBackdropClick}
           role="presentation"
         >
           <section
@@ -274,7 +295,7 @@ export default function GalleryPage() {
                 <button
                   type="button"
                   className="icon-button modal-close-button"
-                  onClick={() => setSelectedPhotoId(null)}
+                  onClick={closePhoto}
                   aria-label="상세 보기 닫기"
                 >
                   <X size={18} />
