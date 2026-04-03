@@ -7,7 +7,9 @@ import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const dataDir = path.join(__dirname, 'data');
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, 'data');
 const uploadsDir = path.join(dataDir, 'uploads');
 const photosFile = path.join(dataDir, 'photos.json');
 const settingsFile = path.join(dataDir, 'settings.json');
@@ -578,4 +580,5 @@ const server = createServer(async (request, response) => {
 await ensureDataFiles();
 server.listen(port, host, () => {
   console.log(`Photo gallery API listening on http://${host}:${port}`);
+  console.log(`Photo gallery data directory: ${dataDir}`);
 });
