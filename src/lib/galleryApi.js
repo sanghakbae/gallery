@@ -2,6 +2,32 @@ import { loadAdminSession } from './googleAuth';
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
+function createDetailedError(summary, details) {
+  const message = [
+    summary,
+    ...details.filter(Boolean),
+  ].join('\n');
+
+  const error = new Error(message);
+  error.name = 'ApiRequestError';
+  return error;
+}
+
+function summarizeResponseText(text, maxLength = 180) {
+  if (!text) {
+    return '';
+  }
+
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  return normalized.length > maxLength
+    ? `${normalized.slice(0, maxLength)}...`
+    : normalized;
+}
+
 function toApiUrl(path) {
   if (!apiBaseUrl) {
     return path;
@@ -27,16 +53,73 @@ async function request(path, options = {}) {
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(toApiUrl(path), {
+  const requestUrl = toApiUrl(path);
+  const response = await fetch(requestUrl, {
     ...options,
     headers,
   });
 
   const text = await response.text();
-  const data = text ? JSON.parse(text) : null;
+  const contentType = response.headers.get('content-type') ?? '';
+  const responsePreview = summarizeResponseText(text);
+  const apiBaseState = apiBaseUrl || '(empty)';
+
+  if (text && /^<!doctype html/i.test(text.trimStart())) {
+    throw createDetailedError(
+      'API 대신 HTML 문서를 받았습니다.',
+      [
+        `request=${requestUrl}`,
+        `status=${response.status}`,
+        `content-type=${contentType || 'unknown'}`,
+        `VITE_API_BASE_URL=${apiBaseState}`,
+        apiBaseUrl
+          ? '가능한 원인: 배포된 프론트가 잘못된 백엔드 URL을 사용 중이거나, 프록시/리다이렉트가 HTML 페이지를 반환했습니다.'
+          : '가능한 원인: GitHub Pages 빌드 시 VITE_API_BASE_URL이 비어 있어서 상대 경로 /api/... 로 요청했습니다.',
+        responsePreview ? `response-preview=${responsePreview}` : '',
+      ],
+    );
+  }
+
+  if (text && !contentType.includes('application/json')) {
+    throw createDetailedError(
+      'JSON 응답이 아닙니다.',
+      [
+        `request=${requestUrl}`,
+        `status=${response.status}`,
+        `content-type=${contentType || 'unknown'}`,
+        `VITE_API_BASE_URL=${apiBaseState}`,
+        responsePreview ? `response-preview=${responsePreview}` : '',
+      ],
+    );
+  }
+
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch (error) {
+    throw createDetailedError(
+      'JSON 파싱에 실패했습니다.',
+      [
+        `request=${requestUrl}`,
+        `status=${response.status}`,
+        `content-type=${contentType || 'unknown'}`,
+        `VITE_API_BASE_URL=${apiBaseState}`,
+        error instanceof Error ? `parse-error=${error.message}` : '',
+        responsePreview ? `response-preview=${responsePreview}` : '',
+      ],
+    );
+  }
 
   if (!response.ok) {
-    throw new Error(data?.error || `Request failed: ${response.status}`);
+    throw createDetailedError(
+      data?.error || `Request failed: ${response.status}`,
+      [
+        `request=${requestUrl}`,
+        `status=${response.status}`,
+        `content-type=${contentType || 'unknown'}`,
+        `VITE_API_BASE_URL=${apiBaseState}`,
+      ],
+    );
   }
 
   return data;

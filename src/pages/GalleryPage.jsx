@@ -66,7 +66,7 @@ export default function GalleryPage() {
       setError('');
     } catch (loadError) {
       console.error(loadError);
-      setError('공개 사진을 불러오지 못했습니다.');
+      setError(loadError instanceof Error ? loadError.message : '공개 사진을 불러오지 못했습니다.');
     } finally {
       if (!silent) {
         setLoading(false);
