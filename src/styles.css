@@ -152,6 +152,9 @@ a {
 
 .mobile-public-slideshow-stage {
   position: relative;
+}
+
+.mobile-public-shell.is-landscape .mobile-public-slideshow-stage {
   min-height: 100dvh;
 }
 
