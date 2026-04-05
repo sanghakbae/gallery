@@ -476,6 +476,11 @@ export default function AdminPage() {
     () => [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     [photos],
   );
+  const publicPhotoCount = useMemo(
+    () => photos.filter((photo) => photo.isPublic !== false).length,
+    [photos],
+  );
+  const privatePhotoCount = photos.length - publicPhotoCount;
   const publishedSelectionCount = uploadProgress.uploaded + uploadProgress.duplicate;
   const publishedSelectionPercent = uploadProgress.fileTotal > 0
     ? Math.round((publishedSelectionCount / uploadProgress.fileTotal) * 100)
@@ -1081,8 +1086,16 @@ export default function AdminPage() {
 
           <section className="admin-summary-card">
             <div className="stat-card">
-              <span>공개된 사진</span>
+              <span>전체 사진</span>
               <strong>{photos.length}</strong>
+            </div>
+            <div className="stat-card stat-card-compact">
+              <span>공개 사진</span>
+              <strong>{publicPhotoCount}</strong>
+            </div>
+            <div className="stat-card stat-card-compact">
+              <span>비공개 사진</span>
+              <strong>{privatePhotoCount}</strong>
             </div>
             <div className="stat-card stat-card-compact">
               <span>선택 파일 반영</span>
@@ -1109,7 +1122,7 @@ export default function AdminPage() {
               <p className="eyebrow">Upload</p>
               <h2>관리자 업로드</h2>
               <p className="admin-subtitle">
-                업로드된 사진은 바로 공개 갤러리에 노출됩니다. 메모와 위치는 아래 카드에서 수정합니다.
+                업로드된 사진은 기본적으로 공개 상태로 추가됩니다. 아래 카드에서 공개/비공개를 바로 전환할 수 있습니다.
               </p>
             </div>
 
