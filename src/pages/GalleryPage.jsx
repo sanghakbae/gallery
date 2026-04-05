@@ -41,7 +41,7 @@ function isMobileLandscapeViewport() {
 const starterMemories = [
   {
     id: 'starter-1',
-    title: '아직 공개된 사진이 없습니다',
+    title: '',
     imageUrl:
       'data:image/svg+xml;utf8,' +
       encodeURIComponent(`
@@ -57,11 +57,9 @@ const starterMemories = [
           <circle cx="625" cy="120" r="58" fill="#fff1de" opacity="0.72"/>
           <path d="M0 440 C140 340 260 348 360 418 S580 520 800 420 L800 560 L0 560 Z" fill="#1a212c"/>
           <path d="M0 470 C150 392 268 412 390 470 S650 560 800 468 L800 560 L0 560 Z" fill="#0f141a"/>
-          <text x="64" y="164" fill="#fff8ef" font-family="KoPub Dotum, sans-serif" font-size="44">관리자 페이지에서</text>
-          <text x="64" y="220" fill="#fff8ef" font-family="KoPub Dotum, sans-serif" font-size="44">첫 사진을 올려 주세요</text>
         </svg>
       `),
-    locationText: '공개 갤러리는 로그인 없이 볼 수 있습니다.',
+    locationText: '',
     capturedAt: '',
     note: '',
     isPlaceholder: true,
