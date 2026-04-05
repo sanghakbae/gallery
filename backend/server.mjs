@@ -113,6 +113,15 @@ function resolvePublicAssetUrl(objectKey, fallbackPath, requestOrigin = '') {
   return new URL(assetUrl, requestOrigin).toString();
 }
 
+function isMissingAssetError(error) {
+  return (
+    error?.code === 'ENOENT' ||
+    error?.name === 'NoSuchKey' ||
+    error?.name === 'NotFound' ||
+    error?.$metadata?.httpStatusCode === 404
+  );
+}
+
 async function objectExists(key) {
   if (!r2Client) {
     return false;
@@ -586,6 +595,28 @@ async function deleteThumbnailBuffer(photoId) {
   await rm(path.join(thumbnailsDir, getThumbnailName(photoId)), { force: true });
 }
 
+async function verifyStoredPhotoAssets(fileName, photoId) {
+  if (r2Enabled) {
+    const [uploadExists, thumbnailExists] = await Promise.all([
+      objectExists(getUploadObjectKey(fileName)),
+      objectExists(getThumbnailObjectKey(photoId)),
+    ]);
+
+    if (!uploadExists || !thumbnailExists) {
+      const error = new Error('Stored photo assets are missing.');
+      error.code = 'ENOENT';
+      throw error;
+    }
+
+    return;
+  }
+
+  await Promise.all([
+    stat(path.join(uploadsDir, fileName)),
+    stat(path.join(thumbnailsDir, getThumbnailName(photoId))),
+  ]);
+}
+
 async function ensurePhotoThumbnail(photo) {
   const thumbUrl = getThumbnailUrl(photo.id);
   const uploadFileName = path.basename(photo.imageUrl);
@@ -630,7 +661,7 @@ async function normalizePhotos(photos) {
       }
       normalized.push(nextPhoto);
     } catch (error) {
-      if (error?.code !== 'ENOENT') {
+      if (!isMissingAssetError(error)) {
         throw error;
       }
 
@@ -794,6 +825,7 @@ async function handleUploadPhoto(request, response) {
   await writeUploadBuffer(storageName, buffer, mimeType);
   const thumbnailBuffer = await generateThumbnail(buffer);
   await writeThumbnailBuffer(id, thumbnailBuffer);
+  await verifyStoredPhotoAssets(storageName, id);
 
   const record = {
     id,
@@ -961,6 +993,7 @@ async function handleMigrationPhoto(request, response) {
   await writeUploadBuffer(imagePathName, fileBuffer, mimeType);
   const thumbnailBuffer = await generateThumbnail(fileBuffer);
   await writeThumbnailBuffer(photoId, thumbnailBuffer);
+  await verifyStoredPhotoAssets(imagePathName, photoId);
 
   const record = {
     id: photoId,
