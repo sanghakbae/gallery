@@ -3,6 +3,13 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -27,6 +34,29 @@ const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
   .filter(Boolean);
 const verifiedAdminCache = new Map();
 const verifiedAdminTtlMs = 1000 * 60 * 10;
+const r2AccountId = String(process.env.R2_ACCOUNT_ID || '').trim();
+const r2AccessKeyId = String(process.env.R2_ACCESS_KEY_ID || '').trim();
+const r2SecretAccessKey = String(process.env.R2_SECRET_ACCESS_KEY || '').trim();
+const r2BucketName = String(process.env.R2_BUCKET_NAME || '').trim();
+const r2Enabled = Boolean(
+  r2AccountId &&
+  r2AccessKeyId &&
+  r2SecretAccessKey &&
+  r2BucketName,
+);
+const r2Endpoint = r2Enabled
+  ? `https://${r2AccountId}.r2.cloudflarestorage.com`
+  : '';
+const r2Client = r2Enabled
+  ? new S3Client({
+      region: 'auto',
+      endpoint: r2Endpoint,
+      credentials: {
+        accessKeyId: r2AccessKeyId,
+        secretAccessKey: r2SecretAccessKey,
+      },
+    })
+  : null;
 
 const mimeTypes = {
   '.jpg': 'image/jpeg',
@@ -39,8 +69,105 @@ const mimeTypes = {
 const downloadWatermark = 'totoriverce@naver.com';
 const thumbnailWidth = 640;
 const thumbnailHeight = 640;
+const photosObjectKey = 'metadata/photos.json';
+const settingsObjectKey = 'metadata/settings.json';
+
+function getUploadObjectKey(fileName) {
+  return `uploads/${fileName}`;
+}
+
+function getThumbnailObjectKey(photoId) {
+  return `thumbnails/${getThumbnailName(photoId)}`;
+}
+
+async function objectExists(key) {
+  if (!r2Client) {
+    return false;
+  }
+
+  try {
+    await r2Client.send(new HeadObjectCommand({
+      Bucket: r2BucketName,
+      Key: key,
+    }));
+    return true;
+  } catch (error) {
+    if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
+      return false;
+    }
+
+    throw error;
+  }
+}
+
+async function getObjectBuffer(key) {
+  if (!r2Client) {
+    throw new Error('R2 storage is not configured.');
+  }
+
+  const response = await r2Client.send(new GetObjectCommand({
+    Bucket: r2BucketName,
+    Key: key,
+  }));
+
+  const bytes = await response.Body.transformToByteArray();
+  return Buffer.from(bytes);
+}
+
+async function putObject(key, body, contentType) {
+  if (!r2Client) {
+    throw new Error('R2 storage is not configured.');
+  }
+
+  await r2Client.send(new PutObjectCommand({
+    Bucket: r2BucketName,
+    Key: key,
+    Body: body,
+    ContentType: contentType,
+  }));
+}
+
+async function deleteObject(key) {
+  if (!r2Client) {
+    throw new Error('R2 storage is not configured.');
+  }
+
+  await r2Client.send(new DeleteObjectCommand({
+    Bucket: r2BucketName,
+    Key: key,
+  }));
+}
+
+async function readJsonObject(key, fallback) {
+  try {
+    const buffer = await getObjectBuffer(key);
+    return JSON.parse(buffer.toString('utf8'));
+  } catch (error) {
+    if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NoSuchKey') {
+      return fallback;
+    }
+
+    throw error;
+  }
+}
+
+async function writeJsonObject(key, value) {
+  await putObject(key, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8'), 'application/json; charset=utf-8');
+}
 
 async function ensureDataFiles() {
+  if (r2Enabled) {
+    if (!(await objectExists(photosObjectKey))) {
+      await writeJsonObject(photosObjectKey, []);
+    }
+
+    if (!(await objectExists(settingsObjectKey))) {
+      await writeJsonObject(settingsObjectKey, { siteTitle: "Photo's room" });
+    }
+
+    return;
+  }
+
   await mkdir(uploadsDir, { recursive: true });
   await mkdir(thumbnailsDir, { recursive: true });
   try {
@@ -62,23 +189,41 @@ async function ensureDataFiles() {
 
 async function readPhotos() {
   await ensureDataFiles();
+  if (r2Enabled) {
+    return readJsonObject(photosObjectKey, []);
+  }
+
   const raw = await readFile(photosFile, 'utf8');
   return JSON.parse(raw);
 }
 
 async function writePhotos(photos) {
   await ensureDataFiles();
+  if (r2Enabled) {
+    await writeJsonObject(photosObjectKey, photos);
+    return;
+  }
+
   await writeFile(photosFile, `${JSON.stringify(photos, null, 2)}\n`, 'utf8');
 }
 
 async function readSettings() {
   await ensureDataFiles();
+  if (r2Enabled) {
+    return readJsonObject(settingsObjectKey, { siteTitle: "Photo's room" });
+  }
+
   const raw = await readFile(settingsFile, 'utf8');
   return JSON.parse(raw);
 }
 
 async function writeSettings(settings) {
   await ensureDataFiles();
+  if (r2Enabled) {
+    await writeJsonObject(settingsObjectKey, settings);
+    return;
+  }
+
   await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
 }
 
@@ -254,8 +399,8 @@ function getThumbnailUrl(photoId) {
   return `/thumbnails/${getThumbnailName(photoId)}`;
 }
 
-async function generateThumbnail(inputBuffer, outputPath) {
-  const thumbnail = await sharp(inputBuffer, { failOn: 'none' })
+async function generateThumbnail(inputBuffer) {
+  return sharp(inputBuffer, { failOn: 'none' })
     .rotate()
     .resize(thumbnailWidth, thumbnailHeight, {
       fit: 'cover',
@@ -264,20 +409,77 @@ async function generateThumbnail(inputBuffer, outputPath) {
     })
     .webp({ quality: 78, effort: 4 })
     .toBuffer();
+}
 
-  await writeFile(outputPath, thumbnail);
+async function readUploadBuffer(fileName) {
+  if (r2Enabled) {
+    return getObjectBuffer(getUploadObjectKey(fileName));
+  }
+
+  return readFile(path.join(uploadsDir, fileName));
+}
+
+async function writeUploadBuffer(fileName, buffer, mimeType) {
+  if (r2Enabled) {
+    await putObject(getUploadObjectKey(fileName), buffer, mimeType || 'application/octet-stream');
+    return;
+  }
+
+  await writeFile(path.join(uploadsDir, fileName), buffer);
+}
+
+async function deleteUploadBuffer(fileName) {
+  if (r2Enabled) {
+    await deleteObject(getUploadObjectKey(fileName));
+    return;
+  }
+
+  await rm(path.join(uploadsDir, fileName), { force: true });
+}
+
+async function readThumbnailBuffer(fileName) {
+  if (r2Enabled) {
+    return getObjectBuffer(`thumbnails/${fileName}`);
+  }
+
+  return readFile(path.join(thumbnailsDir, fileName));
+}
+
+async function writeThumbnailBuffer(photoId, buffer) {
+  const fileName = getThumbnailName(photoId);
+  if (r2Enabled) {
+    await putObject(`thumbnails/${fileName}`, buffer, 'image/webp');
+    return;
+  }
+
+  await writeFile(path.join(thumbnailsDir, fileName), buffer);
+}
+
+async function deleteThumbnailBuffer(photoId) {
+  if (r2Enabled) {
+    await deleteObject(getThumbnailObjectKey(photoId));
+    return;
+  }
+
+  await rm(path.join(thumbnailsDir, getThumbnailName(photoId)), { force: true });
 }
 
 async function ensurePhotoThumbnail(photo) {
   const thumbUrl = getThumbnailUrl(photo.id);
-  const thumbnailPath = path.join(thumbnailsDir, getThumbnailName(photo.id));
-  const filePath = path.join(uploadsDir, path.basename(photo.imageUrl));
 
   try {
-    await stat(thumbnailPath);
+    if (r2Enabled) {
+      const exists = await objectExists(getThumbnailObjectKey(photo.id));
+      if (!exists) {
+        throw Object.assign(new Error('Missing thumbnail.'), { code: 'ENOENT' });
+      }
+    } else {
+      await stat(path.join(thumbnailsDir, getThumbnailName(photo.id)));
+    }
   } catch {
-    const sourceBuffer = await readFile(filePath);
-    await generateThumbnail(sourceBuffer, thumbnailPath);
+    const sourceBuffer = await readUploadBuffer(path.basename(photo.imageUrl));
+    const thumbnailBuffer = await generateThumbnail(sourceBuffer);
+    await writeThumbnailBuffer(photo.id, thumbnailBuffer);
   }
 
   if (photo.thumbUrl === thumbUrl) {
@@ -433,11 +635,11 @@ async function handleUploadPhoto(request, response) {
 
   const id = randomUUID();
   const storageName = `${id}${extension}`;
-  const storagePath = path.join(uploadsDir, storageName);
   const now = new Date().toISOString();
 
-  await writeFile(storagePath, buffer);
-  await generateThumbnail(buffer, path.join(thumbnailsDir, getThumbnailName(id)));
+  await writeUploadBuffer(storageName, buffer, mimeType);
+  const thumbnailBuffer = await generateThumbnail(buffer);
+  await writeThumbnailBuffer(id, thumbnailBuffer);
 
   const record = {
     id,
@@ -498,8 +700,8 @@ async function handleDeletePhoto(request, response, photoId) {
     return;
   }
 
-  await rm(path.join(uploadsDir, path.basename(target.imageUrl)), { force: true });
-  await rm(path.join(thumbnailsDir, getThumbnailName(photoId)), { force: true });
+  await deleteUploadBuffer(path.basename(target.imageUrl));
+  await deleteThumbnailBuffer(photoId);
   await writePhotos(photos.filter((photo) => photo.id !== photoId));
   sendJson(response, 200, { ok: true });
 }
@@ -513,8 +715,7 @@ async function handleDownloadPhoto(response, photoId) {
     return;
   }
 
-  const filePath = path.join(uploadsDir, path.basename(target.imageUrl));
-  const buffer = await readFile(filePath);
+  const buffer = await readUploadBuffer(path.basename(target.imageUrl));
   const image = sharp(buffer, { failOn: 'none' }).rotate();
   const metadata = await image.metadata();
   const width = metadata.width || 1600;
@@ -594,13 +795,13 @@ async function handleMigrationPhoto(request, response) {
   const fileName = String(meta.fileName || '').trim();
   const mimeType = String(meta.mimeType || request.headers['content-type'] || 'application/octet-stream');
   const imagePathName = path.basename(meta.imageUrl || `${meta.id || randomUUID()}.jpg`);
-  const storagePath = path.join(uploadsDir, imagePathName);
   const photos = await readPhotos();
   const photoId = String(meta.id || randomUUID()).trim();
   const now = new Date().toISOString();
 
-  await writeFile(storagePath, fileBuffer);
-  await generateThumbnail(fileBuffer, path.join(thumbnailsDir, getThumbnailName(photoId)));
+  await writeUploadBuffer(imagePathName, fileBuffer, mimeType);
+  const thumbnailBuffer = await generateThumbnail(fileBuffer);
+  await writeThumbnailBuffer(photoId, thumbnailBuffer);
 
   const record = {
     id: photoId,
@@ -649,28 +850,36 @@ async function handleStorageDebug(request, response) {
   const settings = await readSettings();
   const uploadChecks = await Promise.all(
     photos.map(async (photo) => {
-      const uploadPath = path.join(uploadsDir, path.basename(photo.imageUrl || ''));
-      const thumbnailPath = path.join(thumbnailsDir, getThumbnailName(photo.id));
+      const uploadMissing = r2Enabled
+        ? !(await objectExists(getUploadObjectKey(path.basename(photo.imageUrl || ''))))
+        : await stat(path.join(uploadsDir, path.basename(photo.imageUrl || '')))
+            .then(() => false)
+            .catch(() => true);
+      const thumbnailMissing = r2Enabled
+        ? !(await objectExists(getThumbnailObjectKey(photo.id)))
+        : await stat(path.join(thumbnailsDir, getThumbnailName(photo.id)))
+            .then(() => false)
+            .catch(() => true);
 
-      try {
-        await stat(uploadPath);
-      } catch {
-        return {
-          id: photo.id,
-          fileName: photo.fileName,
-          imageUrl: photo.imageUrl,
-          uploadMissing: true,
-          thumbnailMissing: await stat(thumbnailPath).then(() => false).catch(() => true),
-        };
+      if (!uploadMissing && !thumbnailMissing) {
+        return null;
       }
 
-      return null;
+      return {
+        id: photo.id,
+        fileName: photo.fileName,
+        imageUrl: photo.imageUrl,
+        uploadMissing,
+        thumbnailMissing,
+      };
     }),
   );
 
   const missingUploads = uploadChecks.filter(Boolean);
 
   sendJson(response, 200, {
+    storageBackend: r2Enabled ? 'r2' : 'local',
+    bucketName: r2Enabled ? r2BucketName : '',
     dataDir,
     uploadsDir,
     thumbnailsDir,
@@ -683,11 +892,10 @@ async function handleStorageDebug(request, response) {
 
 async function handleStaticUpload(response, pathname) {
   const fileName = path.basename(pathname);
-  const filePath = path.join(uploadsDir, fileName);
   const extension = path.extname(fileName).toLowerCase();
 
   try {
-    const buffer = await readFile(filePath);
+    const buffer = await readUploadBuffer(fileName);
     response.writeHead(200, {
       'Content-Type': mimeTypes[extension] || 'application/octet-stream',
       'Cache-Control': 'public, max-age=31536000, immutable',
@@ -700,10 +908,9 @@ async function handleStaticUpload(response, pathname) {
 
 async function handleStaticThumbnail(response, pathname) {
   const fileName = path.basename(pathname);
-  const filePath = path.join(thumbnailsDir, fileName);
 
   try {
-    const buffer = await readFile(filePath);
+    const buffer = await readThumbnailBuffer(fileName);
     response.writeHead(200, {
       'Content-Type': 'image/webp',
       'Cache-Control': 'public, max-age=31536000, immutable',
