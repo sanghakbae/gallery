@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   CalendarDays,
@@ -87,6 +87,18 @@ export default function GalleryPage() {
     storageBackend: '',
     message: '상태 확인 중',
   });
+  const imagePreloadCacheRef = useRef(new Set());
+
+  function preloadImage(src) {
+    if (!src || imagePreloadCacheRef.current.has(src)) {
+      return;
+    }
+
+    imagePreloadCacheRef.current.add(src);
+    const image = new Image();
+    image.decoding = 'async';
+    image.src = src;
+  }
 
   async function loadPublicPhotos({ silent = false } = {}) {
     if (!silent) {
@@ -234,10 +246,16 @@ export default function GalleryPage() {
       ? 'status-pill status-pill-connected topbar-action-button topbar-status-pill'
       : 'status-pill status-pill-disconnected topbar-action-button topbar-status-pill';
 
-  function openPhoto(event, photoId) {
+  function openPhoto(photo, event) {
     event.preventDefault();
     event.stopPropagation();
-    setSelectedPhotoId(photoId);
+
+    const previewSrc = photo.thumbUrl || photo.imageUrl || '';
+    setSelectedPhotoId(photo.id);
+    setModalImageSrc(previewSrc);
+    setModalImageLoading(Boolean(photo.imageUrl && photo.imageUrl !== previewSrc));
+    preloadImage(previewSrc);
+    preloadImage(photo.imageUrl);
   }
 
   function closePhoto() {
@@ -292,6 +310,31 @@ export default function GalleryPage() {
       active = false;
     };
   }, [selectedPhoto]);
+
+  useEffect(() => {
+    if (!displayPhotos.length || selectedPhotoIndex < 0) {
+      return;
+    }
+
+    const current = displayPhotos[selectedPhotoIndex];
+    const previous = displayPhotos[(selectedPhotoIndex - 1 + displayPhotos.length) % displayPhotos.length];
+    const next = displayPhotos[(selectedPhotoIndex + 1) % displayPhotos.length];
+
+    [current, previous, next].forEach((photo) => {
+      if (!photo) {
+        return;
+      }
+
+      preloadImage(photo.thumbUrl || photo.imageUrl);
+      preloadImage(photo.imageUrl);
+    });
+  }, [displayPhotos, selectedPhotoIndex]);
+
+  useEffect(() => {
+    displayPhotos.slice(0, 18).forEach((photo) => {
+      preloadImage(photo.thumbUrl || photo.imageUrl);
+    });
+  }, [displayPhotos]);
 
   function moveSlide(direction) {
     if (!hasMultipleSlides) {
@@ -425,7 +468,7 @@ export default function GalleryPage() {
             <button
               type="button"
               className="slideshow-photo-button"
-              onClick={(event) => openPhoto(event, activeSlide.id)}
+              onClick={(event) => openPhoto(activeSlide, event)}
               aria-label={`${getDisplayPhotoTitle(activeSlide)} 슬라이드 사진 크게 보기`}
             >
               <img
@@ -519,7 +562,7 @@ export default function GalleryPage() {
             <button
               type="button"
               className="photo-open-button"
-              onClick={(event) => openPhoto(event, photo.id)}
+              onClick={(event) => openPhoto(photo, event)}
               aria-label={`${getDisplayPhotoTitle(photo)} 크게 보기`}
             >
               <div className="photo-frame">

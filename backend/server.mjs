@@ -92,6 +92,27 @@ function getPublicAssetUrl(objectKey, fallbackPath) {
   return fallbackPath;
 }
 
+function getRequestOrigin(request) {
+  const forwardedProto = String(request.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const protocol = forwardedProto || 'http';
+  const hostHeader = String(request.headers['x-forwarded-host'] || request.headers.host || '').split(',')[0].trim();
+
+  if (!hostHeader) {
+    return '';
+  }
+
+  return `${protocol}://${hostHeader}`;
+}
+
+function resolvePublicAssetUrl(objectKey, fallbackPath, requestOrigin = '') {
+  const assetUrl = getPublicAssetUrl(objectKey, fallbackPath);
+  if (/^https?:\/\//i.test(assetUrl) || !requestOrigin) {
+    return assetUrl;
+  }
+
+  return new URL(assetUrl, requestOrigin).toString();
+}
+
 async function objectExists(key) {
   if (!r2Client) {
     return false;
@@ -492,10 +513,11 @@ function getThumbnailName(photoId) {
   return `${photoId}.webp`;
 }
 
-function getThumbnailUrl(photoId) {
-  return getPublicAssetUrl(
+function getThumbnailUrl(photoId, requestOrigin = '') {
+  return resolvePublicAssetUrl(
     getThumbnailObjectKey(photoId),
     `/thumbnails/${getThumbnailName(photoId)}`,
+    requestOrigin,
   );
 }
 
@@ -624,14 +646,18 @@ async function normalizePhotos(photos) {
   return normalized;
 }
 
-function normalizePhotoMetadata(photo) {
+function normalizePhotoMetadata(photo, requestOrigin = '') {
   if (!photo) {
     return photo;
   }
 
   const uploadFileName = path.basename(photo.imageUrl || `${photo.id}.jpg`);
-  const imageUrl = getPublicAssetUrl(getUploadObjectKey(uploadFileName), `/uploads/${uploadFileName}`);
-  const thumbUrl = getThumbnailUrl(photo.id);
+  const imageUrl = resolvePublicAssetUrl(
+    getUploadObjectKey(uploadFileName),
+    `/uploads/${uploadFileName}`,
+    requestOrigin,
+  );
+  const thumbUrl = getThumbnailUrl(photo.id, requestOrigin);
 
   if (photo.imageUrl === imageUrl && photo.thumbUrl === thumbUrl) {
     return photo;
@@ -871,8 +897,9 @@ async function handleDownloadPhoto(response, photoId) {
   response.end(rendered);
 }
 
-async function handlePublicPhotos(response) {
-  const photos = (await readPhotos()).map(normalizePhotoMetadata);
+async function handlePublicPhotos(request, response) {
+  const requestOrigin = getRequestOrigin(request);
+  const photos = (await readPhotos()).map((photo) => normalizePhotoMetadata(photo, requestOrigin));
   const sorted = [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const settings = await readSettings();
   sendJson(response, 200, {
@@ -1105,7 +1132,7 @@ const server = createServer(async (request, response) => {
 
   try {
     if (request.method === 'GET' && pathname === '/api/public/photos') {
-      await handlePublicPhotos(response);
+      await handlePublicPhotos(request, response);
       return;
     }
 
@@ -1132,7 +1159,7 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'GET' && pathname === '/api/admin/photos') {
       await verifyAdmin(request);
-      await handlePublicPhotos(response);
+      await handlePublicPhotos(request, response);
       return;
     }
 

@@ -839,6 +839,33 @@ export default function AdminPage() {
     });
   }
 
+  function handlePendingPreviewError(itemId) {
+    setPendingUploadBatch((current) => {
+      if (!current) {
+        return current;
+      }
+
+      return {
+        ...current,
+        items: current.items.map((item) => {
+          if (item.id !== itemId || item.previewUnavailable) {
+            return item;
+          }
+
+          if (item.previewUrl) {
+            URL.revokeObjectURL(item.previewUrl);
+          }
+
+          return {
+            ...item,
+            previewUrl: '',
+            previewUnavailable: true,
+          };
+        }),
+      };
+    });
+  }
+
   async function handleConfirmPendingUpload() {
     if (!pendingUploadBatch) {
       return;
@@ -1201,6 +1228,7 @@ export default function AdminPage() {
                         <img
                           src={item.previewUrl}
                           alt={item.meta.title || item.file.name}
+                          onError={() => handlePendingPreviewError(item.id)}
                         />
                       )}
                     </div>
