@@ -714,7 +714,14 @@ export default function GalleryPage() {
                 }
               }}
             >
-              <div className="photo-modal-media">
+              <div
+                className="photo-modal-media"
+                onClick={(event) => {
+                  if (event.target === event.currentTarget) {
+                    closePhoto();
+                  }
+                }}
+              >
                 <div
                   className="photo-modal-visual"
                   onClick={(event) => event.stopPropagation()}
@@ -754,7 +761,14 @@ export default function GalleryPage() {
               </div>
               <div
                 className="photo-modal-meta"
-                onClick={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  if (event.target === event.currentTarget) {
+                    closePhoto();
+                    return;
+                  }
+
+                  event.stopPropagation();
+                }}
               >
                 <h2>{getDisplayPhotoTitle(selectedPhoto)}</h2>
                 <div className="photo-modal-note-row">
