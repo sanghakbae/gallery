@@ -353,16 +353,33 @@ export default function AdminPage() {
       }
 
       try {
-        const [result, summary] = await Promise.all([
+        const [photosResult, summaryResult] = await Promise.allSettled([
           getAdminPhotos(),
           getAdminStorageSummary(),
         ]);
+
+        if (photosResult.status !== 'fulfilled') {
+          throw photosResult.reason;
+        }
+
+        const result = photosResult.value;
         setPhotos(mergeUniquePhotos(result));
-        setStorageSummary({
-          totalBytes: Number(summary?.totalBytes || 0),
-          objectCount: Number(summary?.objectCount || 0),
-          backend: String(summary?.backend || ''),
-        });
+
+        if (summaryResult.status === 'fulfilled') {
+          const summary = summaryResult.value;
+          setStorageSummary({
+            totalBytes: Number(summary?.totalBytes || 0),
+            objectCount: Number(summary?.objectCount || 0),
+            backend: String(summary?.backend || ''),
+          });
+        } else {
+          console.warn('Storage summary is unavailable.', summaryResult.reason);
+          setStorageSummary({
+            totalBytes: 0,
+            objectCount: 0,
+            backend: '',
+          });
+        }
       } catch (loadError) {
         console.error(loadError);
         if (isAuthFailure(loadError)) {
@@ -441,6 +458,10 @@ export default function AdminPage() {
     () => [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
     [photos],
   );
+  const publishedSelectionCount = uploadProgress.uploaded + uploadProgress.duplicate;
+  const publishedSelectionPercent = uploadProgress.fileTotal > 0
+    ? Math.round((publishedSelectionCount / uploadProgress.fileTotal) * 100)
+    : 0;
 
   function isAuthFailure(error) {
     return error instanceof Error
@@ -1003,12 +1024,16 @@ export default function AdminPage() {
               <strong>{photos.length}</strong>
             </div>
             <div className="stat-card stat-card-compact">
-              <span>총 저장 용량</span>
-              <strong>{formatStorageSize(storageSummary.totalBytes)}</strong>
+              <span>선택 파일 반영</span>
+              <strong>
+                {uploadProgress.fileTotal > 0
+                  ? `${publishedSelectionCount}/${uploadProgress.fileTotal} (${publishedSelectionPercent}%)`
+                  : '대기 중'}
+              </strong>
             </div>
             <div className="stat-card stat-card-compact">
-              <span>저장 객체 수</span>
-              <strong>{storageSummary.objectCount}</strong>
+              <span>총 저장 용량</span>
+              <strong>{formatStorageSize(storageSummary.totalBytes)}</strong>
             </div>
             <div className="stat-card stat-card-compact">
               <span>최근 업로드</span>
