@@ -946,8 +946,7 @@ async function handleDownloadPhoto(response, photoId) {
 
 async function handlePublicPhotos(request, response) {
   const requestOrigin = getRequestOrigin(request);
-  const photos = (await normalizePhotos(await readPhotos()))
-    .map((photo) => normalizePhotoMetadata(photo, requestOrigin));
+  const photos = (await readPhotos()).map((photo) => normalizePhotoMetadata(photo, requestOrigin));
   const sorted = [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const settings = await readSettings();
   sendJson(response, 200, {
