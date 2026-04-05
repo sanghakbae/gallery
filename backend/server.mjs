@@ -624,12 +624,23 @@ async function ensurePhotoThumbnail(photo) {
 
   try {
     if (r2Enabled) {
-      const exists = await objectExists(getThumbnailObjectKey(photo.id));
-      if (!exists) {
+      const [uploadExists, thumbnailExists] = await Promise.all([
+        objectExists(getUploadObjectKey(uploadFileName)),
+        objectExists(getThumbnailObjectKey(photo.id)),
+      ]);
+
+      if (!uploadExists) {
+        throw Object.assign(new Error('Missing upload.'), { code: 'ENOENT' });
+      }
+
+      if (!thumbnailExists) {
         throw Object.assign(new Error('Missing thumbnail.'), { code: 'ENOENT' });
       }
     } else {
-      await stat(path.join(thumbnailsDir, getThumbnailName(photo.id)));
+      await Promise.all([
+        stat(path.join(uploadsDir, uploadFileName)),
+        stat(path.join(thumbnailsDir, getThumbnailName(photo.id))),
+      ]);
     }
   } catch {
     const sourceBuffer = await readUploadBuffer(uploadFileName);
