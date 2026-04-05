@@ -777,8 +777,10 @@ async function handleUploadPhoto(request, response) {
   const existing = photos.find((photo) => photo.sha256 === sha256);
 
   if (existing) {
+    const requestOrigin = getRequestOrigin(request);
+    const existingPhoto = normalizePhotoMetadata(await ensurePhotoThumbnail(existing), requestOrigin);
     sendJson(response, 200, {
-      ...existing,
+      ...existingPhoto,
       duplicate: true,
     });
     return;
@@ -813,7 +815,9 @@ async function handleUploadPhoto(request, response) {
 
   photos.unshift(record);
   await writePhotos(photos);
-  sendJson(response, 201, record);
+  const requestOrigin = getRequestOrigin(request);
+  const verifiedRecord = normalizePhotoMetadata(await ensurePhotoThumbnail(record), requestOrigin);
+  sendJson(response, 201, verifiedRecord);
 }
 
 async function handleUpdatePhoto(request, response, photoId) {
@@ -899,7 +903,8 @@ async function handleDownloadPhoto(response, photoId) {
 
 async function handlePublicPhotos(request, response) {
   const requestOrigin = getRequestOrigin(request);
-  const photos = (await readPhotos()).map((photo) => normalizePhotoMetadata(photo, requestOrigin));
+  const photos = (await normalizePhotos(await readPhotos()))
+    .map((photo) => normalizePhotoMetadata(photo, requestOrigin));
   const sorted = [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const settings = await readSettings();
   sendJson(response, 200, {
