@@ -704,10 +704,16 @@ export default function GalleryPage() {
         >
           <section
             className="photo-modal"
-            onClick={closePhoto}
             aria-label={`${getDisplayPhotoTitle(selectedPhoto)} 사진 크게 보기`}
           >
-            <div className="photo-modal-panel">
+            <div
+              className="photo-modal-panel"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  closePhoto();
+                }
+              }}
+            >
               <div className="photo-modal-media">
                 <div
                   className="photo-modal-visual"

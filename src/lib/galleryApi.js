@@ -173,7 +173,7 @@ export function uploadAdminPhoto(payload) {
       'X-Photo-Meta': meta,
     },
     body: payload.file,
-  });
+  }).then(withAssetUrl);
 }
 
 export function updateAdminPhoto(photoId, payload) {
@@ -183,7 +183,7 @@ export function updateAdminPhoto(photoId, payload) {
       Authorization: `Bearer ${getAdminToken()}`,
     },
     body: JSON.stringify(payload),
-  });
+  }).then(withAssetUrl);
 }
 
 export function deleteAdminPhoto(photoId) {

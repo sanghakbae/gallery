@@ -889,7 +889,8 @@ async function handleUpdatePhoto(request, response, photoId) {
   };
 
   await writePhotos(photos);
-  sendJson(response, 200, photos[index]);
+  const requestOrigin = getRequestOrigin(request);
+  sendJson(response, 200, normalizePhotoMetadata(photos[index], requestOrigin));
 }
 
 async function handleDeletePhoto(request, response, photoId) {
