@@ -625,7 +625,7 @@ a {
   position: relative;
   overflow: hidden;
   width: 100%;
-  min-height: 220px;
+  min-height: 420px;
   border-radius: 12px;
   background: rgba(10, 12, 17, 0.82);
 }
@@ -636,7 +636,7 @@ a {
   align-items: center;
   justify-content: center;
   width: 100%;
-  height: min(38vh, 420px);
+  height: min(72vh, 860px);
   padding: 0;
   border: 0;
   background: transparent;

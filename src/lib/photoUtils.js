@@ -62,6 +62,54 @@ export function getGoogleMapsUrl(latitude, longitude) {
   return `https://www.google.com/maps?q=${latitude},${longitude}`;
 }
 
+export function extractGoogleMapsUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+
+  const match = text.match(/https?:\/\/[^\s]+/i);
+  if (!match) {
+    return '';
+  }
+
+  try {
+    const url = new URL(match[0]);
+    const hostname = url.hostname.toLowerCase();
+    const isGoogleMapsHost =
+      hostname === 'google.com'
+      || hostname.endsWith('.google.com')
+      || hostname === 'goo.gl'
+      || hostname === 'maps.app.goo.gl';
+
+    if (!isGoogleMapsHost) {
+      return '';
+    }
+
+    return url.toString();
+  } catch {
+    return '';
+  }
+}
+
+export function normalizeLocationFields(locationText = '', mapsUrl = '') {
+  const nextLocationText = String(locationText || '').trim();
+  const nextMapsUrl = String(mapsUrl || '').trim();
+  const detectedMapsUrl = extractGoogleMapsUrl(nextLocationText);
+
+  if (detectedMapsUrl) {
+    return {
+      locationText: 'Google Maps 위치',
+      mapsUrl: detectedMapsUrl,
+    };
+  }
+
+  return {
+    locationText: nextLocationText,
+    mapsUrl: nextMapsUrl,
+  };
+}
+
 export function getSeasonLabel(dateValue) {
   const month = new Date(dateValue).getMonth() + 1;
 

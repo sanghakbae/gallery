@@ -20,11 +20,13 @@ import {
 } from '../lib/galleryApi';
 import {
   createDefaultPhotoTitle,
+  extractGoogleMapsUrl,
   formatCoordinates,
   formatDate,
   getGoogleMapsUrl,
   getDisplayPhotoTitle,
   getLocationLabel,
+  normalizeLocationFields,
   getSeasonLabel,
 } from '../lib/photoUtils';
 
@@ -894,7 +896,11 @@ export default function AdminPage() {
 
   async function handleFieldSave(photoId, field, value) {
     try {
-      const updated = await updateAdminPhoto(photoId, { [field]: value });
+      const currentPhoto = photos.find((photo) => photo.id === photoId);
+      const payload = field === 'locationText'
+        ? normalizeLocationFields(value, currentPhoto?.mapsUrl ?? '')
+        : { [field]: value };
+      const updated = await updateAdminPhoto(photoId, payload);
       setPhotos((current) => current.map((photo) => (photo.id === photoId ? updated : photo)));
     } catch (saveError) {
       console.error(saveError);
@@ -1417,6 +1423,15 @@ export default function AdminPage() {
                       }
                     />
                   </label>
+
+                  {extractGoogleMapsUrl(photo.mapsUrl) ? (
+                    <div className="admin-photo-meta">
+                      <span>연결된 지도</span>
+                      <a href={photo.mapsUrl} target="_blank" rel="noreferrer">
+                        Google Maps 열기
+                      </a>
+                    </div>
+                  ) : null}
 
                   <div className="admin-photo-meta">
                     <span>{photo.fileName}</span>
