@@ -2,8 +2,8 @@
   "name": "그날의 기록 (Records of the Day)",
   "short_name": "그날의 기록",
   "description": "가족 여행 사진을 업로드하고 장소와 추억을 정리하는 사진 관리 사이트",
-  "start_url": "/photos-mgmt-system/",
-  "scope": "/photos-mgmt-system/",
+  "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#14181f",
@@ -11,13 +11,13 @@
   "lang": "ko",
   "icons": [
     {
-      "src": "/photos-mgmt-system/app-icon.svg",
+      "src": "/app-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
     },
     {
-      "src": "/photos-mgmt-system/mask-icon.svg",
+      "src": "/mask-icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "maskable"
