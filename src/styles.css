@@ -153,8 +153,7 @@ a {
   display: none;
 }
 
-.mobile-public-shell.is-slideshow-only .mobile-public-slideshow,
-.mobile-public-shell.is-landscape .mobile-public-slideshow {
+.mobile-public-shell.is-slideshow-only .mobile-public-slideshow {
   position: fixed;
   inset: 0;
   z-index: 25;
@@ -163,8 +162,7 @@ a {
   border-radius: 0;
 }
 
-.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-overlay,
-.mobile-public-shell.is-landscape .mobile-public-slideshow-overlay {
+.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-overlay {
   display: none;
 }
 
@@ -183,8 +181,7 @@ a {
   transform: scale(1.08);
 }
 
-.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-stage,
-.mobile-public-shell.is-landscape .mobile-public-slideshow-stage {
+.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-stage {
   min-height: 100dvh;
 }
 
@@ -204,8 +201,7 @@ a {
   object-fit: cover;
 }
 
-.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-image,
-.mobile-public-shell.is-landscape .mobile-public-slideshow-image {
+.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-image {
   height: 100dvh;
   object-fit: contain;
   background: #080a0e;
@@ -264,8 +260,7 @@ a {
   z-index: 2;
 }
 
-.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-controls,
-.mobile-public-shell.is-landscape .mobile-public-slideshow-controls {
+.mobile-public-shell.is-slideshow-only .mobile-public-slideshow-controls {
   position: absolute;
   left: 50%;
   bottom: 0;
@@ -276,8 +271,7 @@ a {
   background: linear-gradient(180deg, transparent, rgba(9, 10, 14, 0.82));
 }
 
-.mobile-public-shell.is-slideshow-only .slideshow-position,
-.mobile-public-shell.is-landscape .slideshow-position {
+.mobile-public-shell.is-slideshow-only .slideshow-position {
   display: none;
 }
 

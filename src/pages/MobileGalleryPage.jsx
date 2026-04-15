@@ -161,10 +161,6 @@ export default function MobileGalleryPage() {
     function syncLandscapeSlideshow() {
       const nextLandscape = isMobileLandscapeViewport();
       setIsLandscapeViewport(nextLandscape);
-
-      if (isMobileLandscapeViewport()) {
-        setSlideshowVisible(true);
-      }
     }
 
     syncLandscapeSlideshow();
@@ -256,11 +252,11 @@ export default function MobileGalleryPage() {
 
   return (
     <div
-      className={`mobile-public-shell ${isLandscapeViewport ? 'is-landscape' : ''} ${
-        slideshowVisible ? 'is-slideshow-only' : ''
-      }`}
+      className={`mobile-public-shell ${
+        slideshowVisible && activeSlide && isLandscapeViewport ? 'is-landscape' : ''
+      } ${slideshowVisible && activeSlide ? 'is-slideshow-only' : ''}`}
     >
-      {!slideshowVisible ? (
+      {!slideshowVisible || !activeSlide ? (
         <>
           <header className="mobile-public-header">
             <div>
@@ -401,7 +397,7 @@ export default function MobileGalleryPage() {
         </section>
       ) : null}
 
-      {!slideshowVisible ? (
+      {!slideshowVisible || !activeSlide ? (
         <main className="mobile-public-feed">
         {displayPhotos.map((photo) => (
           <button
