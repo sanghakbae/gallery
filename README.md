@@ -1,4 +1,4 @@
-# photos-mgmt-system
+# gallery
 
 사진 공개 갤러리 프론트와 관리자 업로드 백엔드를 같은 레포에서 관리합니다.
 
@@ -55,7 +55,7 @@
 - 저장소 Settings > Pages 에서 source를 `GitHub Actions`로 설정
 - 커스텀 도메인 사용 시 프론트 base path는 `/`를 사용하고, 기본 운영 도메인은 `https://gallery.sanghak.kr/`
 - 프론트 빌드 시 `VITE_API_BASE_URL`을 Render 백엔드 URL로 지정
-- 저장소 하위 경로에 다시 배포해야 하면 `VITE_APP_BASE_PATH=/photos-mgmt-system/` 처럼 오버라이드 가능
+- 저장소 하위 경로에 다시 배포해야 하면 `VITE_APP_BASE_PATH=/gallery/` 처럼 오버라이드 가능
 
 ## GitHub Actions
 
