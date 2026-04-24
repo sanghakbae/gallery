@@ -6,14 +6,13 @@ import {
   ChevronRight,
   Download,
   Images,
-  LoaderCircle,
   MapPin,
   MessageSquareText,
   Search,
   X,
 } from 'lucide-react';
 import ResilientImage from '../components/ResilientImage';
-import { getPhotoDownloadUrl, getPublicPhotos, getPublicSystemStatus } from '../lib/galleryApi';
+import { getPhotoDownloadUrl, getPublicPhotosPage, getPublicSystemStatus } from '../lib/galleryApi';
 import { formatDate, getDisplayPhotoTitle } from '../lib/photoUtils';
 import {
   buildSystemStatusFromError,
@@ -24,6 +23,8 @@ import {
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 
 const STATUS_REFRESH_MS = 300000;
+const INITIAL_PHOTO_BATCH_SIZE = 36;
+const FOLLOW_UP_BATCH_SIZE = 72;
 const SLIDESHOW_SPEED_OPTIONS = [
   { label: '2초', value: 2000 },
   { label: '5초', value: 5000 },
@@ -61,38 +62,12 @@ function isMobileLandscapeViewport() {
   return isLandscape && (isMobileSized || isTouchPrimary);
 }
 
-const starterMemories = [
-  {
-    id: 'starter-1',
-    title: '',
-    imageUrl:
-      'data:image/svg+xml;utf8,' +
-      encodeURIComponent(`
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560">
-          <defs>
-            <linearGradient id="g" x1="0%" x2="100%" y1="0%" y2="100%">
-              <stop offset="0%" stop-color="#253142"/>
-              <stop offset="50%" stop-color="#4c6078"/>
-              <stop offset="100%" stop-color="#d77a51"/>
-            </linearGradient>
-          </defs>
-          <rect width="800" height="560" fill="url(#g)"/>
-          <circle cx="625" cy="120" r="58" fill="#fff1de" opacity="0.72"/>
-          <path d="M0 440 C140 340 260 348 360 418 S580 520 800 420 L800 560 L0 560 Z" fill="#1a212c"/>
-          <path d="M0 470 C150 392 268 412 390 470 S650 560 800 468 L800 560 L0 560 Z" fill="#0f141a"/>
-        </svg>
-      `),
-    locationText: '',
-    capturedAt: '',
-    note: '',
-    isPlaceholder: true,
-  },
-];
-
 export default function GalleryPage() {
   const [photos, setPhotos] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [totalPhotoCount, setTotalPhotoCount] = useState(0);
   const [error, setError] = useState('');
   const [selectedPhotoId, setSelectedPhotoId] = useState(null);
   const [selectedPhotoState, setSelectedPhotoState] = useState(null);
@@ -103,6 +78,7 @@ export default function GalleryPage() {
   const [systemStatus, setSystemStatus] = useState(() => createInitialSystemStatus());
   const imagePreloadCacheRef = useRef(new Set());
   const slideshowTouchStartRef = useRef(null);
+  const progressiveLoadGenerationRef = useRef(0);
 
   function preloadImage(src) {
     if (!src || imagePreloadCacheRef.current.has(src)) {
@@ -116,16 +92,58 @@ export default function GalleryPage() {
   }
 
   async function loadPublicPhotos() {
+    const generation = progressiveLoadGenerationRef.current + 1;
+    progressiveLoadGenerationRef.current = generation;
     setLoading(true);
+    setLoadingMore(false);
     try {
-      const response = await getPublicPhotos();
-      setPhotos(response);
+      const firstPage = await getPublicPhotosPage({
+        offset: 0,
+        limit: INITIAL_PHOTO_BATCH_SIZE,
+      });
+
+      if (progressiveLoadGenerationRef.current !== generation) {
+        return;
+      }
+
+      setPhotos(firstPage.photos);
+      setTotalPhotoCount(firstPage.totalCount);
       setError('');
+      setLoading(false);
+
+      if (!firstPage.hasMore) {
+        return;
+      }
+
+      let offset = firstPage.offset + firstPage.photos.length;
+      setLoadingMore(true);
+
+      while (offset < firstPage.totalCount && progressiveLoadGenerationRef.current === generation) {
+        const nextPage = await getPublicPhotosPage({
+          offset,
+          limit: FOLLOW_UP_BATCH_SIZE,
+        });
+
+        if (progressiveLoadGenerationRef.current !== generation) {
+          return;
+        }
+
+        setPhotos((current) => [...current, ...nextPage.photos]);
+        setTotalPhotoCount(nextPage.totalCount);
+        offset += nextPage.photos.length;
+
+        if (!nextPage.hasMore || nextPage.photos.length === 0) {
+          break;
+        }
+      }
     } catch (loadError) {
       console.error(loadError);
       setError(loadError instanceof Error ? loadError.message : '공개 사진을 불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (progressiveLoadGenerationRef.current === generation) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }
 
@@ -169,20 +187,20 @@ export default function GalleryPage() {
 
     return () => {
       active = false;
+      progressiveLoadGenerationRef.current += 1;
       window.clearInterval(statusIntervalId);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [selectedPhotoId]);
 
   const displayPhotos = useMemo(() => {
-    const source = photos.length > 0 ? photos : starterMemories;
     const keyword = search.trim().toLowerCase();
 
     if (!keyword) {
-      return source;
+      return photos;
     }
 
-    return source.filter((photo) => {
+    return photos.filter((photo) => {
       const values = [photo.title, photo.locationText, photo.note, photo.fileName]
         .filter(Boolean)
         .join(' ')
@@ -200,15 +218,12 @@ export default function GalleryPage() {
       .at(-1);
 
     return {
-      total: photos.length,
+      total: totalPhotoCount || photos.length,
       latest: latest ? formatDate(latest) : '아직 없음',
     };
-  }, [photos]);
+  }, [photos, totalPhotoCount]);
 
-  const slideshowPhotos = useMemo(() => {
-    const source = photos.length > 0 ? photos : starterMemories;
-    return source;
-  }, [photos]);
+  const slideshowPhotos = photos;
 
   const activeSlide = slideshowPhotos[activeSlideIndex] ?? slideshowPhotos[0] ?? null;
 
@@ -217,8 +232,7 @@ export default function GalleryPage() {
       return null;
     }
 
-    const source = photos.length > 0 ? photos : starterMemories;
-    return source.find((photo) => photo.id === selectedPhotoId) ?? selectedPhotoState ?? null;
+    return photos.find((photo) => photo.id === selectedPhotoId) ?? selectedPhotoState ?? null;
   }, [photos, selectedPhotoId, selectedPhotoState]);
 
   useBodyScrollLock(Boolean(selectedPhotoId));
@@ -292,7 +306,7 @@ export default function GalleryPage() {
   }, [displayPhotos, selectedPhotoIndex]);
 
   useEffect(() => {
-    displayPhotos.slice(0, 18).forEach((photo) => {
+    displayPhotos.slice(0, 6).forEach((photo) => {
       preloadImage(photo.thumbUrl || photo.imageUrl);
     });
   }, [displayPhotos]);
@@ -443,10 +457,12 @@ export default function GalleryPage() {
                 </p>
               </div>
               <div className="mobile-gallery-actions">
-                <div className={systemStatusClassName} title={systemStatus.message}>
-                  {systemStatus.loading ? <LoaderCircle size={16} className="spin" /> : <Images size={16} />}
-                  {statusPresentation.label}
-                </div>
+                {!systemStatus.loading ? (
+                  <div className={systemStatusClassName} title={systemStatus.message}>
+                    <Images size={16} />
+                    {statusPresentation.label}
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   className="secondary-button topbar-action-button"
@@ -469,10 +485,12 @@ export default function GalleryPage() {
               </div>
 
               <div className="gallery-topbar-actions">
-                <div className={systemStatusClassName} title={systemStatus.message}>
-                  {systemStatus.loading ? <LoaderCircle size={16} className="spin" /> : <Images size={16} />}
-                  {statusPresentation.label}
-                </div>
+                {!systemStatus.loading ? (
+                  <div className={systemStatusClassName} title={systemStatus.message}>
+                    <Images size={16} />
+                    {statusPresentation.label}
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   className="secondary-button topbar-action-button"
@@ -498,7 +516,7 @@ export default function GalleryPage() {
           >
             <div
               className="slideshow-backdrop-image"
-              style={{ backgroundImage: `url(${activeSlide.imageUrl})` }}
+              style={{ backgroundImage: `url(${activeSlide.thumbUrl || activeSlide.imageUrl})` }}
               aria-hidden="true"
             />
             <button
@@ -508,7 +526,7 @@ export default function GalleryPage() {
               aria-label={`${getDisplayPhotoTitle(activeSlide)} 슬라이드 사진 크게 보기`}
               >
                 <ResilientImage
-                  sources={[activeSlide.imageUrl, activeSlide.thumbUrl]}
+                  sources={[activeSlide.thumbUrl, activeSlide.imageUrl]}
                   alt={getDisplayPhotoTitle(activeSlide)}
                   className="slideshow-image"
                   decoding="async"
@@ -595,19 +613,20 @@ export default function GalleryPage() {
         {!isMobileExperience ? (
           <div className="toolbar-info">
             <Images size={18} />
-            <span>공개 갤러리입니다. 관리자만 업로드와 편집이 가능합니다.</span>
+            <span>{loadingMore ? `사진 ${photos.length}/${stats.total}장을 불러오는 중` : `사진 ${stats.total}장`}</span>
           </div>
         ) : null}
         </section>
       ) : null}
 
       {!slideshowVisible && error ? <p className="error-banner">{error}</p> : null}
+      {!slideshowVisible && loading && !photos.length ? <p className="admin-loading">사진 목록을 불러오는 중입니다.</p> : null}
 
       {!slideshowVisible ? (
         <main className={isMobileExperience ? 'gallery-grid mobile-gallery-grid' : 'gallery-grid'}>
         {displayPhotos.map((photo, index) => (
           <article
-            className={`photo-card ${photo.isPlaceholder ? 'placeholder-card' : ''}`}
+            className="photo-card"
             key={photo.id}
             style={{ animationDelay: `${index * 80}ms` }}
           >
@@ -631,7 +650,6 @@ export default function GalleryPage() {
                 <div className="photo-heading">
                   <div>
                     <h2>{getDisplayPhotoTitle(photo)}</h2>
-                    <p>{photo.fileName ?? '안내 카드'}</p>
                   </div>
                 </div>
 
@@ -655,6 +673,17 @@ export default function GalleryPage() {
             </button>
           </article>
         ))}
+        {!loading && !displayPhotos.length ? (
+          <article className="photo-card photo-card-empty">
+            <div className="photo-content">
+              <div className="photo-heading">
+                <div>
+                  <h2>표시할 사진이 없습니다.</h2>
+                </div>
+              </div>
+            </div>
+          </article>
+        ) : null}
         </main>
       ) : null}
 

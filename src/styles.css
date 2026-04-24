@@ -287,6 +287,11 @@ a {
   -webkit-tap-highlight-color: transparent;
 }
 
+.mobile-public-card-empty {
+  min-height: 88px;
+  align-items: center;
+}
+
 .mobile-public-photo-frame {
   overflow: hidden;
   border-radius: 12px;
@@ -1150,6 +1155,14 @@ a {
 .placeholder-card .photo-frame img,
 .placeholder-card .photo-card-image {
   object-fit: cover;
+}
+
+.photo-card-empty {
+  min-height: 96px;
+}
+
+.photo-card-empty .photo-open-button {
+  cursor: default;
 }
 
 .photo-modal-backdrop {

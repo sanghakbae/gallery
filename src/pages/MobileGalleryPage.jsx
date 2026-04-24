@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CalendarDays, ChevronLeft, ChevronRight, Download, Images, LoaderCircle, MapPin, MessageSquareText, Search, X } from 'lucide-react';
+import { CalendarDays, ChevronLeft, ChevronRight, Download, Images, MapPin, MessageSquareText, Search, X } from 'lucide-react';
 import ResilientImage from '../components/ResilientImage';
-import { getPhotoDownloadUrl, getPublicPhotos, getPublicSystemStatus } from '../lib/galleryApi';
+import { getPhotoDownloadUrl, getPublicPhotosPage, getPublicSystemStatus } from '../lib/galleryApi';
 import { formatDate, getDisplayPhotoTitle } from '../lib/photoUtils';
 import {
   buildSystemStatusFromError,
@@ -13,6 +13,8 @@ import {
 import { useBodyScrollLock } from '../lib/useBodyScrollLock';
 
 const STATUS_REFRESH_MS = 300000;
+const INITIAL_PHOTO_BATCH_SIZE = 30;
+const FOLLOW_UP_BATCH_SIZE = 60;
 const SLIDESHOW_SPEED_OPTIONS = [
   { label: '2초', value: 2000 },
   { label: '5초', value: 5000 },
@@ -31,6 +33,8 @@ export default function MobileGalleryPage() {
   const [photos, setPhotos] = useState([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [totalPhotoCount, setTotalPhotoCount] = useState(0);
   const [error, setError] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
@@ -39,18 +43,61 @@ export default function MobileGalleryPage() {
   const [isLandscapeViewport, setIsLandscapeViewport] = useState(() => isMobileLandscapeViewport());
   const [systemStatus, setSystemStatus] = useState(() => createInitialSystemStatus());
   const slideshowTouchStartRef = useRef(null);
+  const progressiveLoadGenerationRef = useRef(0);
 
   async function loadPublicGallery() {
+    const generation = progressiveLoadGenerationRef.current + 1;
+    progressiveLoadGenerationRef.current = generation;
     setLoading(true);
+    setLoadingMore(false);
     try {
-      const nextPhotos = await getPublicPhotos();
-      setPhotos(nextPhotos);
+      const firstPage = await getPublicPhotosPage({
+        offset: 0,
+        limit: INITIAL_PHOTO_BATCH_SIZE,
+      });
+
+      if (progressiveLoadGenerationRef.current !== generation) {
+        return;
+      }
+
+      setPhotos(firstPage.photos);
+      setTotalPhotoCount(firstPage.totalCount);
       setError('');
+      setLoading(false);
+
+      if (!firstPage.hasMore) {
+        return;
+      }
+
+      let offset = firstPage.offset + firstPage.photos.length;
+      setLoadingMore(true);
+
+      while (offset < firstPage.totalCount && progressiveLoadGenerationRef.current === generation) {
+        const nextPage = await getPublicPhotosPage({
+          offset,
+          limit: FOLLOW_UP_BATCH_SIZE,
+        });
+
+        if (progressiveLoadGenerationRef.current !== generation) {
+          return;
+        }
+
+        setPhotos((current) => [...current, ...nextPage.photos]);
+        setTotalPhotoCount(nextPage.totalCount);
+        offset += nextPage.photos.length;
+
+        if (!nextPage.hasMore || nextPage.photos.length === 0) {
+          break;
+        }
+      }
     } catch (loadError) {
       console.error(loadError);
       setError(loadError instanceof Error ? loadError.message : '공개 사진을 불러오지 못했습니다.');
     } finally {
-      setLoading(false);
+      if (progressiveLoadGenerationRef.current === generation) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }
 
@@ -73,10 +120,10 @@ export default function MobileGalleryPage() {
       }
 
       await loadPublicGallery();
-      await loadSystemStatus();
     }
 
     boot();
+    loadSystemStatus();
 
     const statusInterval = window.setInterval(() => {
       if (document.visibilityState === 'visible' && !selectedPhoto) {
@@ -86,6 +133,7 @@ export default function MobileGalleryPage() {
 
     return () => {
       active = false;
+      progressiveLoadGenerationRef.current += 1;
       window.clearInterval(statusInterval);
     };
   }, [selectedPhoto]);
@@ -235,13 +283,15 @@ export default function MobileGalleryPage() {
               <p className="eyebrow">Mobile Public Gallery</p>
               <h1>그날의 기록</h1>
               <p className="mobile-public-subtitle">
-                공개 사진 {photos.length}장
+                공개 사진 {totalPhotoCount || photos.length}장
               </p>
             </div>
-            <div className={statusClassName} title={systemStatus.message}>
-              {systemStatus.loading ? <LoaderCircle size={16} className="spin" /> : <Images size={16} />}
-              {statusPresentation.label}
-            </div>
+            {!systemStatus.loading ? (
+              <div className={statusClassName} title={systemStatus.message}>
+                <Images size={16} />
+                {statusPresentation.label}
+              </div>
+            ) : null}
           </header>
 
           <section className="mobile-public-toolbar">
@@ -270,7 +320,8 @@ export default function MobileGalleryPage() {
           </section>
 
           {error ? <p className="error-banner">{error}</p> : null}
-          {loading ? <p className="admin-loading">사진 목록을 불러오는 중입니다.</p> : null}
+          {loading && !photos.length ? <p className="admin-loading">사진 목록을 불러오는 중입니다.</p> : null}
+          {!loading && loadingMore ? <p className="admin-loading">사진을 순차적으로 더 불러오는 중입니다.</p> : null}
         </>
       ) : null}
 
@@ -283,7 +334,7 @@ export default function MobileGalleryPage() {
           >
             <div
               className="mobile-public-slideshow-backdrop"
-              style={{ backgroundImage: `url(${activeSlide.imageUrl || activeSlide.thumbUrl})` }}
+              style={{ backgroundImage: `url(${activeSlide.thumbUrl || activeSlide.imageUrl})` }}
               aria-hidden="true"
             />
             <button
@@ -292,7 +343,7 @@ export default function MobileGalleryPage() {
               onClick={() => setSelectedPhoto(activeSlide)}
             >
               <ResilientImage
-                sources={[activeSlide.imageUrl, activeSlide.thumbUrl]}
+                sources={[activeSlide.thumbUrl, activeSlide.imageUrl]}
                 alt={getDisplayPhotoTitle(activeSlide)}
                 className="mobile-public-slideshow-image"
               />
@@ -397,6 +448,13 @@ export default function MobileGalleryPage() {
             </div>
           </button>
         ))}
+        {!loading && !displayPhotos.length ? (
+          <div className="mobile-public-card mobile-public-card-empty">
+            <div className="mobile-public-copy">
+              <h2>표시할 사진이 없습니다.</h2>
+            </div>
+          </div>
+        ) : null}
         </main>
       ) : null}
 

@@ -138,8 +138,24 @@ function getAdminToken() {
   return loadAdminSession()?.credential ?? '';
 }
 
+export function getPublicPhotosPage({ offset = 0, limit = 60 } = {}) {
+  const params = new URLSearchParams({
+    offset: String(offset),
+    limit: String(limit),
+  });
+
+  return request(`/api/public/photos?${params.toString()}`).then((data) => ({
+    photos: (data?.photos ?? []).map(withAssetUrl),
+    totalCount: Number(data?.totalCount || 0),
+    offset: Number(data?.offset || 0),
+    limit: Number(data?.limit || limit),
+    hasMore: Boolean(data?.hasMore),
+    siteTitle: data?.siteTitle || '',
+  }));
+}
+
 export function getPublicPhotos() {
-  return request('/api/public/photos').then((data) => (data?.photos ?? []).map(withAssetUrl));
+  return getPublicPhotosPage().then((data) => data.photos);
 }
 
 export function getPublicSystemStatus() {

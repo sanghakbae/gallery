@@ -481,7 +481,13 @@ async function generateThumbnail(inputBuffer) {
 
 async function readUploadBuffer(fileName) {
   if (r2Enabled) {
-    return getObjectBuffer(getUploadObjectKey(fileName));
+    try {
+      return await getObjectBuffer(getUploadObjectKey(fileName));
+    } catch (error) {
+      if (!isMissingAssetError(error)) {
+        throw error;
+      }
+    }
   }
 
   return readFile(path.join(uploadsDir, fileName));
@@ -507,7 +513,13 @@ async function deleteUploadBuffer(fileName) {
 
 async function readThumbnailBuffer(fileName) {
   if (r2Enabled) {
-    return getObjectBuffer(`thumbnails/${fileName}`);
+    try {
+      return await getObjectBuffer(`thumbnails/${fileName}`);
+    } catch (error) {
+      if (!isMissingAssetError(error)) {
+        throw error;
+      }
+    }
   }
 
   return readFile(path.join(thumbnailsDir, fileName));
@@ -892,16 +904,43 @@ async function handleDownloadPhoto(response, photoId) {
   response.end(rendered);
 }
 
-async function handlePublicPhotos(request, response) {
+function clampPublicPhotoLimit(value) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (Number.isNaN(parsed)) {
+    return 60;
+  }
+
+  return Math.min(Math.max(parsed, 1), 120);
+}
+
+function clampPublicPhotoOffset(value) {
+  const parsed = Number.parseInt(String(value || ''), 10);
+  if (Number.isNaN(parsed) || parsed < 0) {
+    return 0;
+  }
+
+  return parsed;
+}
+
+async function handlePublicPhotos(request, response, url) {
   const requestOrigin = getRequestOrigin(request);
   const photos = (await readPhotos())
     .filter((photo) => photo?.isPublic !== false)
     .map((photo) => normalizePhotoMetadata(photo, requestOrigin));
   const sorted = [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const settings = await readSettings();
+  const hasPaging = url.searchParams.has('offset') || url.searchParams.has('limit');
+  const offset = hasPaging ? clampPublicPhotoOffset(url.searchParams.get('offset')) : 0;
+  const limit = hasPaging ? clampPublicPhotoLimit(url.searchParams.get('limit')) : sorted.length;
+  const items = sorted.slice(offset, offset + limit);
+
   sendJson(response, 200, {
     siteTitle: settings.siteTitle || defaultSiteTitle,
-    photos: sorted,
+    totalCount: sorted.length,
+    offset,
+    limit,
+    hasMore: offset + items.length < sorted.length,
+    photos: items,
   });
 }
 
@@ -1166,7 +1205,7 @@ const server = createServer(async (request, response) => {
 
   try {
     if (request.method === 'GET' && pathname === '/api/public/photos') {
-      await handlePublicPhotos(request, response);
+      await handlePublicPhotos(request, response, url);
       return;
     }
 
