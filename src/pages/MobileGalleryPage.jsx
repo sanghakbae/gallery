@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Images, MapPin, MessageSquareText, Search, X } from 'lucide-react';
 import ResilientImage from '../components/ResilientImage';
+import TransitioningModalImage from '../components/TransitioningModalImage';
 import { getPhotoDownloadUrl, getPublicPhotosPage, getPublicSystemStatus } from '../lib/galleryApi';
 import { formatDate, getDisplayPhotoTitle } from '../lib/photoUtils';
 import {
@@ -476,6 +477,7 @@ export default function MobileGalleryPage() {
           <section
             className="mobile-public-modal"
             aria-label={`${getDisplayPhotoTitle(selectedPhoto)} 사진 크게 보기`}
+            onClick={() => setSelectedPhoto(null)}
           >
             <button
               type="button"
@@ -487,39 +489,12 @@ export default function MobileGalleryPage() {
             </button>
 
             <div className="mobile-public-modal-image-wrap">
-              {hasMultiplePhotos ? (
-                <button
-                  type="button"
-                  className="icon-button mobile-public-modal-nav mobile-public-modal-nav-left"
-                  onClick={() => {
-                    const nextIndex = (selectedPhotoIndex - 1 + displayPhotos.length) % displayPhotos.length;
-                    setSelectedPhoto(displayPhotos[nextIndex] ?? null);
-                  }}
-                  aria-label="이전 사진"
-                >
-                  <ChevronLeft size={18} />
-                </button>
-              ) : null}
-              <ResilientImage
-                sources={[selectedPhoto.imageUrl, selectedPhoto.thumbUrl]}
+              <TransitioningModalImage
+                photo={selectedPhoto}
                 className="mobile-public-modal-image"
                 alt={getDisplayPhotoTitle(selectedPhoto)}
-                decoding="async"
                 onClick={() => setSelectedPhoto(null)}
               />
-              {hasMultiplePhotos ? (
-                <button
-                  type="button"
-                  className="icon-button mobile-public-modal-nav mobile-public-modal-nav-right"
-                  onClick={() => {
-                    const nextIndex = (selectedPhotoIndex + 1) % displayPhotos.length;
-                    setSelectedPhoto(displayPhotos[nextIndex] ?? null);
-                  }}
-                  aria-label="다음 사진"
-                >
-                  <ChevronRight size={18} />
-                </button>
-              ) : null}
             </div>
 
             <div className="mobile-public-modal-copy">

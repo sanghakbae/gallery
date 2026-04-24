@@ -1245,6 +1245,20 @@ a {
   filter: saturate(1.03) contrast(1.03);
 }
 
+.modal-image-transition {
+  opacity: 1;
+  transform: scale(1);
+  transition:
+    opacity 180ms ease,
+    transform 220ms ease;
+  will-change: opacity, transform;
+}
+
+.modal-image-transition.is-transitioning {
+  opacity: 0.22;
+  transform: scale(0.985);
+}
+
 .image-fallback {
   background:
     linear-gradient(180deg, rgba(255, 247, 236, 0.18), rgba(107, 80, 61, 0.22)),

@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import ResilientImage from '../components/ResilientImage';
+import TransitioningModalImage from '../components/TransitioningModalImage';
 import { getPhotoDownloadUrl, getPublicPhotosPage, getPublicSystemStatus } from '../lib/galleryApi';
 import { formatDate, getDisplayPhotoTitle } from '../lib/photoUtils';
 import {
@@ -696,67 +697,20 @@ export default function GalleryPage() {
           <section
             className="photo-modal"
             aria-label={`${getDisplayPhotoTitle(selectedPhoto)} 사진 크게 보기`}
+            onClick={() => closePhoto()}
           >
-            <div
-              className="photo-modal-panel"
-              onClick={(event) => {
-                if (event.target === event.currentTarget) {
-                  closePhoto();
-                }
-              }}
-            >
-              <div
-                className="photo-modal-media"
-                onClick={(event) => {
-                  if (event.target === event.currentTarget) {
-                    closePhoto();
-                  }
-                }}
-              >
-                <div
-                  className="photo-modal-visual"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {hasMultipleDisplayPhotos ? (
-                    <button
-                      type="button"
-                      className="icon-button photo-nav-button photo-nav-button-left"
-                      onClick={() => moveSelectedPhoto(-1)}
-                      aria-label="이전 사진 보기"
-                    >
-                      <ChevronLeft size={20} />
-                    </button>
-                  ) : null}
-                  <ResilientImage
-                    sources={[selectedPhoto.imageUrl, selectedPhoto.thumbUrl]}
+            <div className="photo-modal-panel">
+              <div className="photo-modal-media">
+                <div className="photo-modal-visual">
+                  <TransitioningModalImage
+                    photo={selectedPhoto}
                     alt={getDisplayPhotoTitle(selectedPhoto)}
                     className="photo-modal-image"
-                    decoding="async"
                     onClick={() => closePhoto()}
                   />
-                  {hasMultipleDisplayPhotos ? (
-                    <button
-                      type="button"
-                      className="icon-button photo-nav-button photo-nav-button-right"
-                      onClick={() => moveSelectedPhoto(1)}
-                      aria-label="다음 사진 보기"
-                    >
-                      <ChevronRight size={20} />
-                    </button>
-                  ) : null}
                 </div>
               </div>
-              <div
-                className="photo-modal-meta"
-                onClick={(event) => {
-                  if (event.target === event.currentTarget) {
-                    closePhoto();
-                    return;
-                  }
-
-                  event.stopPropagation();
-                }}
-              >
+              <div className="photo-modal-meta">
                 <h2>{getDisplayPhotoTitle(selectedPhoto)}</h2>
                 <div className="photo-modal-note-row">
                   <p>{selectedPhoto.note || '등록된 메모가 없습니다.'}</p>
