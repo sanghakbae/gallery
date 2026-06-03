@@ -3,3 +3,5 @@ node_modules/
 backend/data/uploads/
 backend/data/thumbnails/
 dist/
+
+backend/.cf.env
