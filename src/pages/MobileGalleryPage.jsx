@@ -576,10 +576,23 @@ export default function MobileGalleryPage() {
                   <CalendarDays size={14} />
                   {photo.capturedAt ? formatDate(photo.capturedAt) : '촬영일 정보 없음'}
                 </span>
-                <span>
-                  <MapPin size={14} />
-                  {photo.locationText || '위치 정보 없음'}
-                </span>
+                {photo.mapsUrl ? (
+                  <a
+                    className="photo-location-link"
+                    href={photo.mapsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <MapPin size={14} />
+                    {photo.locationText || '지도에서 보기'}
+                  </a>
+                ) : (
+                  <span>
+                    <MapPin size={14} />
+                    {photo.locationText || '위치 정보 없음'}
+                  </span>
+                )}
                 {photo.note ? (
                   <span>
                     <MessageSquareText size={14} />

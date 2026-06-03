@@ -810,7 +810,19 @@ export default function GalleryPage() {
                     <span>{Math.max(0, Number(selectedPhoto.likeCount || 0))}</span>
                   </button>
                 </div>
-                <p>{selectedPhoto.locationText || '위치 정보 없음'}</p>
+                {selectedPhoto.mapsUrl ? (
+                  <a
+                    className="photo-location-link"
+                    href={selectedPhoto.mapsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <MapPin size={15} />
+                    <span>{selectedPhoto.locationText || '지도에서 보기'}</span>
+                  </a>
+                ) : (
+                  <p>{selectedPhoto.locationText || '위치 정보 없음'}</p>
+                )}
               </div>
             </div>
           </section>

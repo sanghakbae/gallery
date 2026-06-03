@@ -2362,3 +2362,16 @@ a {
     min-height: 53px;
   }
 }
+
+.photo-location-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.photo-location-link:hover {
+  opacity: 0.8;
+}
