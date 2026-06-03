@@ -248,9 +248,40 @@ async function ensureDataFiles() {
   await mkdir(thumbnailsDir, { recursive: true });
 }
 
+// In-memory caches to avoid re-reading the entire collection on every public
+// request (Firestore bills per document read). Any write invalidates them.
+const photosCacheTtlMs = 30 * 1000;
+const settingsCacheTtlMs = 60 * 1000;
+let photosCache = null;
+let photosCacheExpiresAt = 0;
+let settingsCache = null;
+let settingsCacheExpiresAt = 0;
+
+function invalidatePhotosCache() {
+  photosCache = null;
+  photosCacheExpiresAt = 0;
+}
+
+function invalidateSettingsCache() {
+  settingsCache = null;
+  settingsCacheExpiresAt = 0;
+}
+
 async function readPhotos() {
   const snapshot = await getDb().collection(photosCollection).get();
   return snapshot.docs.map((doc) => doc.data());
+}
+
+// Cached read of the full photo list. Used by high-traffic public endpoints.
+async function readPhotosCached() {
+  const now = Date.now();
+  if (photosCache && photosCacheExpiresAt > now) {
+    return photosCache;
+  }
+
+  photosCache = await readPhotos();
+  photosCacheExpiresAt = now + photosCacheTtlMs;
+  return photosCache;
 }
 
 async function getPhotoById(photoId) {
@@ -274,14 +305,17 @@ async function findPhotoBySha256(sha256) {
 
 async function savePhoto(record) {
   await getDb().collection(photosCollection).doc(record.id).set(record);
+  invalidatePhotosCache();
 }
 
 async function updatePhotoFields(photoId, fields) {
   await getDb().collection(photosCollection).doc(photoId).set(fields, { merge: true });
+  invalidatePhotosCache();
 }
 
 async function deletePhotoById(photoId) {
   await getDb().collection(photosCollection).doc(photoId).delete();
+  invalidatePhotosCache();
 }
 
 async function deletePhotosByIds(photoIds) {
@@ -295,19 +329,25 @@ async function deletePhotosByIds(photoIds) {
     }
     await batch.commit();
   }
+
+  invalidatePhotosCache();
 }
 
 async function readSettings() {
-  const doc = await getDb().collection(settingsCollection).doc(settingsDocId).get();
-  if (!doc.exists) {
-    return { siteTitle: defaultSiteTitle };
+  const now = Date.now();
+  if (settingsCache && settingsCacheExpiresAt > now) {
+    return settingsCache;
   }
 
-  return doc.data();
+  const doc = await getDb().collection(settingsCollection).doc(settingsDocId).get();
+  settingsCache = doc.exists ? doc.data() : { siteTitle: defaultSiteTitle };
+  settingsCacheExpiresAt = now + settingsCacheTtlMs;
+  return settingsCache;
 }
 
 async function writeSettings(settings) {
   await getDb().collection(settingsCollection).doc(settingsDocId).set(settings, { merge: true });
+  invalidateSettingsCache();
 }
 
 function sendJson(response, statusCode, data) {
@@ -656,6 +696,7 @@ async function handleTogglePhotoLike(response, photoId, direction) {
     return;
   }
 
+  invalidatePhotosCache();
   sendJson(response, 200, {
     ok: true,
     photoId,
@@ -899,8 +940,7 @@ async function handleBulkDeletePhotos(request, response) {
 }
 
 async function handleDownloadPhoto(response, photoId) {
-  const photos = await readPhotos();
-  const target = photos.find((photo) => photo.id === photoId);
+  const target = await getPhotoById(photoId);
 
   if (!target) {
     sendJson(response, 404, { error: 'Photo not found.' });
@@ -953,7 +993,7 @@ function clampPublicPhotoOffset(value) {
 
 async function handlePublicPhotos(request, response, url) {
   const requestOrigin = getRequestOrigin(request);
-  const photos = (await readPhotos())
+  const photos = (await readPhotosCached())
     .filter((photo) => photo?.isPublic !== false)
     .map((photo) => normalizePhotoMetadata(photo, requestOrigin));
   const sorted = [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -1211,8 +1251,7 @@ async function handleStaticThumbnail(response, pathname) {
         throw error;
       }
 
-      const photos = await readPhotos();
-      const photo = photos.find((item) => item.id === photoId);
+      const photo = await getPhotoById(photoId);
       if (!photo) {
         throw error;
       }
