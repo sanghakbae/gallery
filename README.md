@@ -14,30 +14,12 @@
 3. 프론트 실행: `npm run dev -- --host 127.0.0.1`
 4. 로컬 접속 주소: `http://127.0.0.1:4173/` 또는 Vite가 출력한 루트 주소
 
-## 아키텍처
-
-- 인증: **Firebase Authentication** (Google 로그인)
-- 메타데이터 DB: **Firebase Firestore** (`photos`, `settings` 컬렉션)
-- 이미지 저장: Cloudflare R2 또는 로컬 디스크 (그대로 유지)
-
 ## 환경변수
 
-프론트 (Vite, 빌드 시 주입):
-
-- `VITE_FIREBASE_API_KEY`
-- `VITE_FIREBASE_AUTH_DOMAIN`
-- `VITE_FIREBASE_PROJECT_ID`
-- `VITE_FIREBASE_STORAGE_BUCKET`
-- `VITE_FIREBASE_MESSAGING_SENDER_ID`
-- `VITE_FIREBASE_APP_ID`
+- `VITE_GOOGLE_CLIENT_ID`
 - `VITE_ADMIN_EMAILS`
 - `VITE_API_BASE_URL`
 - `VITE_APP_BASE_PATH`
-
-백엔드 (Node 서버):
-
-- `FIREBASE_SERVICE_ACCOUNT` (서비스 계정 JSON 전체) 또는 `FIREBASE_SERVICE_ACCOUNT_PATH`
-- `FIREBASE_PROJECT_ID` (서비스 계정에 있으면 생략 가능)
 - `ADMIN_EMAILS`
 - `ALLOWED_ORIGINS`
 - `DATA_DIR`
@@ -47,18 +29,6 @@
 - `R2_SECRET_ACCESS_KEY`
 - `R2_BUCKET_NAME`
 - `R2_PUBLIC_BASE_URL`
-
-## Firebase 설정 (최초 1회)
-
-1. [Firebase 콘솔](https://console.firebase.google.com/)에서 새 프로젝트 생성
-2. **Authentication > Sign-in method**에서 **Google** 공급업체 사용 설정
-3. **Authentication > Settings > 승인된 도메인**에 `localhost`, `127.0.0.1`, 운영 도메인(`gallery.sanghak.kr`, `sanghakbae.github.io`) 추가
-4. **Firestore Database** 만들기 (프로덕션 모드, 가까운 리전 선택). 서버가 Admin SDK로 접근하므로 보안 규칙은 기본 잠금 상태로 둬도 됩니다
-5. **프로젝트 설정 > 일반 > 내 앱**에서 웹 앱(`</>`) 등록 → 출력된 `firebaseConfig` 값을 위 `VITE_FIREBASE_*` 변수에 채움
-6. **프로젝트 설정 > 서비스 계정 > 새 비공개 키 생성**으로 JSON 키 다운로드
-   - 로컬: `backend/firebase-service-account.json`으로 저장 (gitignore됨)
-   - Render: JSON 내용 전체를 `FIREBASE_SERVICE_ACCOUNT` 환경변수에 붙여넣기
-7. 기존 데이터 이전: R2의 `metadata/photos.json`이 권위 있는 소스입니다. R2 자격증명(`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`)을 환경에 설정한 뒤 `npm run migrate:firestore -- --dry-run`로 확인하고 `npm run migrate:firestore` 실행 (Firestore의 기존 사진을 R2 데이터로 교체)
 
 ## Render
 
@@ -74,7 +44,7 @@
 
 ## Cloudflare R2
 
-- R2 환경변수가 모두 설정되면 사진 원본과 썸네일을 R2에 저장합니다 (사진/설정 메타데이터는 Firestore에 저장됨)
+- R2 환경변수가 모두 설정되면 사진 원본, 썸네일, `photos.json`, `settings.json` 을 모두 R2에 저장합니다
 - `R2_PUBLIC_BASE_URL` 까지 설정하면 브라우저가 Render 프록시 대신 Cloudflare 공개 URL에서 이미지와 썸네일을 직접 받아 더 빠르게 로드합니다
 - 이 모드에서는 Render free에서도 로컬 디스크 없이 동작할 수 있습니다
 - 디버그 응답 `GET /api/internal/debug/storage` 의 `storageBackend` 가 `r2` 여야 정상입니다

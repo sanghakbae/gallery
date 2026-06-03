@@ -12,11 +12,6 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import sharp from 'sharp';
-import { getAdminAuth, getDb } from './lib/firebase.mjs';
-
-const photosCollection = 'photos';
-const settingsCollection = 'settings';
-const settingsDocId = 'site';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,6 +20,8 @@ const dataDir = process.env.DATA_DIR
   : path.join(__dirname, 'data');
 const uploadsDir = path.join(dataDir, 'uploads');
 const thumbnailsDir = path.join(dataDir, 'thumbnails');
+const photosFile = path.join(dataDir, 'photos.json');
+const settingsFile = path.join(dataDir, 'settings.json');
 const port = Number(process.env.PORT || 8787);
 const host = process.env.HOST || '127.0.0.1';
 const migrationToken = String(process.env.MIGRATION_TOKEN || '').trim();
@@ -74,6 +71,8 @@ const mimeTypes = {
 };
 const thumbnailWidth = 640;
 const thumbnailHeight = 640;
+const photosObjectKey = 'metadata/photos.json';
+const settingsObjectKey = 'metadata/settings.json';
 const defaultSiteTitle = '그날의 기록 (Records of the Day)';
 
 function getUploadObjectKey(fileName) {
@@ -210,7 +209,7 @@ async function getStorageUsageSummary() {
   let totalBytes = 0;
   let objectCount = 0;
 
-  const filePaths = [];
+  const filePaths = [photosFile, settingsFile];
   const photos = await readPhotos();
   for (const photo of photos) {
     filePaths.push(path.join(uploadsDir, path.basename(photo.imageUrl || '')));
@@ -234,123 +233,93 @@ async function getStorageUsageSummary() {
   };
 }
 
-// Photo and settings metadata lives in Firestore. Image binaries continue to
-// live in Cloudflare R2 (or the local uploads/thumbnails directories).
+async function readJsonObject(key, fallback) {
+  try {
+    const buffer = await getObjectBuffer(key);
+    return JSON.parse(buffer.toString('utf8'));
+  } catch (error) {
+    if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NoSuchKey') {
+      return fallback;
+    }
+
+    throw error;
+  }
+}
+
+async function writeJsonObject(key, value) {
+  await putObject(key, Buffer.from(`${JSON.stringify(value, null, 2)}\n`, 'utf8'), 'application/json; charset=utf-8');
+}
 
 async function ensureDataFiles() {
-  // Only local image directories need to be ensured up-front; Firestore
-  // collections/documents are created lazily on first write.
   if (r2Enabled) {
+    if (!(await objectExists(photosObjectKey))) {
+      await writeJsonObject(photosObjectKey, []);
+    }
+
+    if (!(await objectExists(settingsObjectKey))) {
+      await writeJsonObject(settingsObjectKey, { siteTitle: defaultSiteTitle });
+    }
+
     return;
   }
 
   await mkdir(uploadsDir, { recursive: true });
   await mkdir(thumbnailsDir, { recursive: true });
-}
+  try {
+    await stat(photosFile);
+  } catch {
+    await writeFile(photosFile, '[]\n', 'utf8');
+  }
 
-// In-memory caches to avoid re-reading the entire collection on every public
-// request (Firestore bills per document read). Any write invalidates them.
-// Writes invalidate these caches immediately, so a long TTL is safe and keeps
-// Firestore reads well within the free-tier daily quota: under read-only
-// traffic the full photo list is fetched at most once per TTL window.
-const photosCacheTtlMs = 10 * 60 * 1000;
-const settingsCacheTtlMs = 30 * 60 * 1000;
-let photosCache = null;
-let photosCacheExpiresAt = 0;
-let settingsCache = null;
-let settingsCacheExpiresAt = 0;
-
-function invalidatePhotosCache() {
-  photosCache = null;
-  photosCacheExpiresAt = 0;
-}
-
-function invalidateSettingsCache() {
-  settingsCache = null;
-  settingsCacheExpiresAt = 0;
+  try {
+    await stat(settingsFile);
+  } catch {
+    await writeFile(
+      settingsFile,
+      `${JSON.stringify({ siteTitle: defaultSiteTitle }, null, 2)}\n`,
+      'utf8',
+    );
+  }
 }
 
 async function readPhotos() {
-  const snapshot = await getDb().collection(photosCollection).get();
-  return snapshot.docs.map((doc) => doc.data());
-}
-
-// Cached read of the full photo list. Used by high-traffic public endpoints.
-async function readPhotosCached() {
-  const now = Date.now();
-  if (photosCache && photosCacheExpiresAt > now) {
-    return photosCache;
+  await ensureDataFiles();
+  if (r2Enabled) {
+    return readJsonObject(photosObjectKey, []);
   }
 
-  photosCache = await readPhotos();
-  photosCacheExpiresAt = now + photosCacheTtlMs;
-  return photosCache;
+  const raw = await readFile(photosFile, 'utf8');
+  return JSON.parse(raw);
 }
 
-async function getPhotoById(photoId) {
-  const doc = await getDb().collection(photosCollection).doc(photoId).get();
-  return doc.exists ? doc.data() : null;
-}
-
-async function findPhotoBySha256(sha256) {
-  if (!sha256) {
-    return null;
+async function writePhotos(photos) {
+  await ensureDataFiles();
+  if (r2Enabled) {
+    await writeJsonObject(photosObjectKey, photos);
+    return;
   }
 
-  const snapshot = await getDb()
-    .collection(photosCollection)
-    .where('sha256', '==', sha256)
-    .limit(1)
-    .get();
-
-  return snapshot.empty ? null : snapshot.docs[0].data();
-}
-
-async function savePhoto(record) {
-  await getDb().collection(photosCollection).doc(record.id).set(record);
-  invalidatePhotosCache();
-}
-
-async function updatePhotoFields(photoId, fields) {
-  await getDb().collection(photosCollection).doc(photoId).set(fields, { merge: true });
-  invalidatePhotosCache();
-}
-
-async function deletePhotoById(photoId) {
-  await getDb().collection(photosCollection).doc(photoId).delete();
-  invalidatePhotosCache();
-}
-
-async function deletePhotosByIds(photoIds) {
-  const db = getDb();
-  const chunkSize = 400;
-
-  for (let start = 0; start < photoIds.length; start += chunkSize) {
-    const batch = db.batch();
-    for (const photoId of photoIds.slice(start, start + chunkSize)) {
-      batch.delete(db.collection(photosCollection).doc(photoId));
-    }
-    await batch.commit();
-  }
-
-  invalidatePhotosCache();
+  await writeFile(photosFile, `${JSON.stringify(photos, null, 2)}\n`, 'utf8');
 }
 
 async function readSettings() {
-  const now = Date.now();
-  if (settingsCache && settingsCacheExpiresAt > now) {
-    return settingsCache;
+  await ensureDataFiles();
+  if (r2Enabled) {
+    return readJsonObject(settingsObjectKey, { siteTitle: defaultSiteTitle });
   }
 
-  const doc = await getDb().collection(settingsCollection).doc(settingsDocId).get();
-  settingsCache = doc.exists ? doc.data() : { siteTitle: defaultSiteTitle };
-  settingsCacheExpiresAt = now + settingsCacheTtlMs;
-  return settingsCache;
+  const raw = await readFile(settingsFile, 'utf8');
+  return JSON.parse(raw);
 }
 
 async function writeSettings(settings) {
-  await getDb().collection(settingsCollection).doc(settingsDocId).set(settings, { merge: true });
-  invalidateSettingsCache();
+  await ensureDataFiles();
+  if (r2Enabled) {
+    await writeJsonObject(settingsObjectKey, settings);
+    return;
+  }
+
+  await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
 }
 
 function sendJson(response, statusCode, data) {
@@ -672,34 +641,26 @@ function normalizePhotoMetadata(photo, requestOrigin = '') {
 }
 
 async function handleTogglePhotoLike(response, photoId, direction) {
-  const db = getDb();
-  const ref = db.collection(photosCollection).doc(photoId);
+  const photos = await readPhotos();
+  const index = photos.findIndex((photo) => photo.id === photoId);
 
-  const likeCount = await db.runTransaction(async (transaction) => {
-    const snapshot = await transaction.get(ref);
-    if (!snapshot.exists) {
-      return null;
-    }
-
-    const currentCount = Math.max(0, Number(snapshot.data().likeCount || 0));
-    const nextCount = direction === 'up'
-      ? currentCount + 1
-      : Math.max(0, currentCount - 1);
-
-    transaction.update(ref, {
-      likeCount: nextCount,
-      updatedAt: new Date().toISOString(),
-    });
-
-    return nextCount;
-  });
-
-  if (likeCount === null) {
+  if (index === -1) {
     sendJson(response, 404, { error: 'Photo not found.' });
     return;
   }
 
-  invalidatePhotosCache();
+  const currentCount = Math.max(0, Number(photos[index].likeCount || 0));
+  const likeCount = direction === 'up'
+    ? currentCount + 1
+    : Math.max(0, currentCount - 1);
+
+  photos[index] = {
+    ...photos[index],
+    likeCount,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await writePhotos(photos);
   sendJson(response, 200, {
     ok: true,
     photoId,
@@ -712,9 +673,7 @@ async function verifyAdmin(request) {
   const token = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
 
   if (!token) {
-    const error = new Error('Missing admin token.');
-    error.statusCode = 401;
-    throw error;
+    throw new Error('Missing admin token.');
   }
 
   const cached = verifiedAdminCache.get(token);
@@ -722,39 +681,35 @@ async function verifyAdmin(request) {
     return cached.admin;
   }
 
-  let decoded;
-  try {
-    decoded = await getAdminAuth().verifyIdToken(token);
-  } catch (verifyError) {
-    const error = new Error(
-      verifyError instanceof Error ? verifyError.message : 'Failed to verify Firebase ID token.',
-    );
-    error.statusCode = 401;
+  const response = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(token)}`,
+  );
+
+  if (!response.ok) {
+    const body = await response.text();
+    const error = new Error(body || 'Failed to verify Google ID token.');
+    error.statusCode = response.status === 400 ? 401 : response.status;
     throw error;
   }
 
-  const email = String(decoded.email || '').toLowerCase();
+  const profile = await response.json();
+  const email = String(profile.email || '').toLowerCase();
 
-  if (!email || decoded.email_verified !== true) {
-    const error = new Error('Google account is not verified.');
-    error.statusCode = 401;
-    throw error;
+  if (!email || profile.email_verified !== 'true') {
+    throw new Error('Google account is not verified.');
   }
 
   if (allowedAdminEmails.length > 0 && !allowedAdminEmails.includes(email)) {
-    const error = new Error('Admin account is not allowed.');
-    error.statusCode = 403;
-    throw error;
+    throw new Error('Admin account is not allowed.');
   }
 
   const admin = {
     email,
-    name: decoded.name || decoded.email || '',
+    name: profile.name || profile.email || '',
   };
   verifiedAdminCache.set(token, {
     admin,
-    // Cache no longer than the token itself is valid.
-    expiresAt: Math.min(Date.now() + verifiedAdminTtlMs, Number(decoded.exp || 0) * 1000),
+    expiresAt: Date.now() + verifiedAdminTtlMs,
   });
 
   return admin;
@@ -816,7 +771,8 @@ async function handleUploadPhoto(request, response) {
 
   const extension = getExtension(mimeType, fileName);
   const sha256 = createHash('sha256').update(buffer).digest('hex');
-  const existing = await findPhotoBySha256(sha256);
+  const photos = await readPhotos();
+  const existing = photos.find((photo) => photo.sha256 === sha256);
 
   if (existing) {
     const requestOrigin = getRequestOrigin(request);
@@ -858,7 +814,8 @@ async function handleUploadPhoto(request, response) {
     isPublic: true,
   };
 
-  await savePhoto(record);
+  photos.unshift(record);
+  await writePhotos(photos);
   const requestOrigin = getRequestOrigin(request);
   const verifiedRecord = normalizePhotoMetadata(await ensurePhotoThumbnail(record), requestOrigin);
   sendJson(response, 201, verifiedRecord);
@@ -867,37 +824,39 @@ async function handleUploadPhoto(request, response) {
 async function handleUpdatePhoto(request, response, photoId) {
   await verifyAdmin(request);
   const body = await readJsonBody(request);
-  const current = await getPhotoById(photoId);
+  const photos = await readPhotos();
+  const index = photos.findIndex((photo) => photo.id === photoId);
 
-  if (!current) {
+  if (index === -1) {
     sendJson(response, 404, { error: 'Photo not found.' });
     return;
   }
 
-  const updated = {
-    ...current,
-    title: body.title ?? current.title,
-    note: body.note ?? current.note,
-    locationText: body.locationText ?? current.locationText,
-    capturedAt: body.capturedAt ?? current.capturedAt,
-    coordinatesText: body.coordinatesText ?? current.coordinatesText,
-    mapsUrl: body.mapsUrl ?? current.mapsUrl,
+  photos[index] = {
+    ...photos[index],
+    title: body.title ?? photos[index].title,
+    note: body.note ?? photos[index].note,
+    locationText: body.locationText ?? photos[index].locationText,
+    capturedAt: body.capturedAt ?? photos[index].capturedAt,
+    coordinatesText: body.coordinatesText ?? photos[index].coordinatesText,
+    mapsUrl: body.mapsUrl ?? photos[index].mapsUrl,
     likeCount:
       typeof body.likeCount === 'number'
         ? Math.max(0, Number(body.likeCount))
-        : current.likeCount ?? 0,
-    isPublic: typeof body.isPublic === 'boolean' ? body.isPublic : current.isPublic !== false,
+        : photos[index].likeCount ?? 0,
+    isPublic: typeof body.isPublic === 'boolean' ? body.isPublic : photos[index].isPublic !== false,
     updatedAt: new Date().toISOString(),
   };
 
-  await savePhoto(updated);
+  await writePhotos(photos);
   const requestOrigin = getRequestOrigin(request);
-  sendJson(response, 200, normalizePhotoMetadata(updated, requestOrigin));
+  sendJson(response, 200, normalizePhotoMetadata(photos[index], requestOrigin));
 }
 
 async function handleDeletePhoto(request, response, photoId) {
   await verifyAdmin(request);
-  const target = await getPhotoById(photoId);
+  const photos = await readPhotos();
+  const target = photos.find((photo) => photo.id === photoId);
 
   if (!target) {
     sendJson(response, 404, { error: 'Photo not found.' });
@@ -906,7 +865,7 @@ async function handleDeletePhoto(request, response, photoId) {
 
   await deleteUploadBuffer(path.basename(target.imageUrl));
   await deleteThumbnailBuffer(photoId);
-  await deletePhotoById(photoId);
+  await writePhotos(photos.filter((photo) => photo.id !== photoId));
   sendJson(response, 200, { ok: true });
 }
 
@@ -922,7 +881,9 @@ async function handleBulkDeletePhotos(request, response) {
     return;
   }
 
-  const targets = (await Promise.all(targetIds.map((id) => getPhotoById(id)))).filter(Boolean);
+  const targetIdSet = new Set(targetIds);
+  const photos = await readPhotos();
+  const targets = photos.filter((photo) => targetIdSet.has(photo.id));
 
   if (targets.length === 0) {
     sendJson(response, 200, { ok: true, deletedCount: 0 });
@@ -938,12 +899,13 @@ async function handleBulkDeletePhotos(request, response) {
     }),
   );
 
-  await deletePhotosByIds(targets.map((photo) => photo.id));
+  await writePhotos(photos.filter((photo) => !targetIdSet.has(photo.id)));
   sendJson(response, 200, { ok: true, deletedCount: targets.length });
 }
 
 async function handleDownloadPhoto(response, photoId) {
-  const target = await getPhotoById(photoId);
+  const photos = await readPhotos();
+  const target = photos.find((photo) => photo.id === photoId);
 
   if (!target) {
     sendJson(response, 404, { error: 'Photo not found.' });
@@ -996,7 +958,7 @@ function clampPublicPhotoOffset(value) {
 
 async function handlePublicPhotos(request, response, url) {
   const requestOrigin = getRequestOrigin(request);
-  const photos = (await readPhotosCached())
+  const photos = (await readPhotos())
     .filter((photo) => photo?.isPublic !== false)
     .map((photo) => normalizePhotoMetadata(photo, requestOrigin));
   const sorted = [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -1068,6 +1030,7 @@ async function handleMigrationPhoto(request, response) {
   const fileName = String(meta.fileName || '').trim();
   const mimeType = String(meta.mimeType || request.headers['content-type'] || 'application/octet-stream');
   const imagePathName = path.basename(meta.imageUrl || `${meta.id || randomUUID()}.jpg`);
+  const photos = await readPhotos();
   const photoId = String(meta.id || randomUUID()).trim();
   const now = new Date().toISOString();
   const imageUrl = getPublicAssetUrl(getUploadObjectKey(imagePathName), `/uploads/${imagePathName}`);
@@ -1097,7 +1060,14 @@ async function handleMigrationPhoto(request, response) {
     isPublic: meta.isPublic !== false,
   };
 
-  await savePhoto(record);
+  const existingIndex = photos.findIndex((photo) => photo.id === photoId);
+  if (existingIndex >= 0) {
+    photos[existingIndex] = record;
+  } else {
+    photos.unshift(record);
+  }
+
+  await writePhotos(photos);
   sendJson(response, 200, { ok: true, photo: record });
 }
 
@@ -1168,12 +1138,10 @@ async function handlePublicStatus(response) {
     await ensureDataFiles();
 
     if (r2Enabled) {
-      // Listing succeeds even on an empty bucket; failure indicates a real issue.
-      await getStorageUsageSummary();
-      storageOk = true;
-      storageMessage = 'Cloudflare R2 연결 정상';
+      storageOk = await objectExists(settingsObjectKey);
+      storageMessage = storageOk ? 'Cloudflare R2 연결 정상' : 'Cloudflare R2 연결 확인 필요';
     } else {
-      await stat(uploadsDir);
+      await stat(photosFile);
       storageOk = true;
       storageMessage = '로컬 저장소 사용 중';
     }
@@ -1182,20 +1150,8 @@ async function handlePublicStatus(response) {
     storageMessage = error instanceof Error ? error.message : '저장소 상태를 확인하지 못했습니다.';
   }
 
-  let databaseOk = false;
-  let databaseMessage = '';
-
-  try {
-    await readSettings();
-    databaseOk = true;
-    databaseMessage = 'Firebase Firestore 연결 정상';
-  } catch (error) {
-    databaseOk = false;
-    databaseMessage = error instanceof Error ? error.message : 'Firestore 상태를 확인하지 못했습니다.';
-  }
-
   sendJson(response, 200, {
-    ok: storageOk && databaseOk,
+    ok: true,
     render: {
       ok: true,
       message: 'Render API 응답 정상',
@@ -1205,11 +1161,6 @@ async function handlePublicStatus(response) {
       provider: r2Enabled ? 'cloudflare-r2' : 'local',
       ok: storageOk,
       message: storageMessage,
-    },
-    database: {
-      provider: 'firebase-firestore',
-      ok: databaseOk,
-      message: databaseMessage,
     },
     checkedAt: new Date().toISOString(),
   });
@@ -1254,7 +1205,8 @@ async function handleStaticThumbnail(response, pathname) {
         throw error;
       }
 
-      const photo = await getPhotoById(photoId);
+      const photos = await readPhotos();
+      const photo = photos.find((item) => item.id === photoId);
       if (!photo) {
         throw error;
       }

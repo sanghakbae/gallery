@@ -1,39 +1,4 @@
-// The Google Photos Library integration uses Google Identity Services directly
-// to obtain an OAuth access token (separate from admin sign-in, which uses
-// Firebase Authentication).
-const GOOGLE_IDENTITY_SCRIPT = 'https://accounts.google.com/gsi/client';
-const GOOGLE_IDENTITY_SCRIPT_ID = 'google-identity-services';
-
-function loadGoogleIdentityScript() {
-  if (typeof window === 'undefined') {
-    return Promise.reject(new Error('Window is not available.'));
-  }
-
-  if (window.google?.accounts?.oauth2) {
-    return Promise.resolve(window.google);
-  }
-
-  const existing = document.getElementById(GOOGLE_IDENTITY_SCRIPT_ID);
-  if (existing) {
-    return new Promise((resolve, reject) => {
-      existing.addEventListener('load', () => resolve(window.google), { once: true });
-      existing.addEventListener('error', () => reject(new Error('Google script failed to load.')), {
-        once: true,
-      });
-    });
-  }
-
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.id = GOOGLE_IDENTITY_SCRIPT_ID;
-    script.src = GOOGLE_IDENTITY_SCRIPT;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve(window.google);
-    script.onerror = () => reject(new Error('Google script failed to load.'));
-    document.head.appendChild(script);
-  });
-}
+import { loadGoogleIdentityScript } from './googleAuth';
 
 const GOOGLE_PHOTOS_SCOPES = [
   'https://www.googleapis.com/auth/photoslibrary.appendonly',

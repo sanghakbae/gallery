@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import exifr from 'exifr';
 import { CheckSquare, LoaderCircle, LogOut, PencilLine, ShieldCheck, Square, Trash2, Upload, X } from 'lucide-react';
 import {
+  clearAdminSession,
+  decodeJwt,
   getConfiguredAdminEmails,
   isAllowedAdminEmail,
-  isFirebaseConfigured,
-  signInWithGoogle,
-  signOutAdmin,
-  subscribeToAdminSession,
+  loadAdminSession,
+  loadGoogleIdentityScript,
+  saveAdminSession,
 } from '../lib/googleAuth';
 import {
   bulkDeleteAdminPhotos,
@@ -30,6 +31,9 @@ import {
   getSeasonLabel,
 } from '../lib/photoUtils';
 
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  '924920443826-k59m97pgabmdb42qv9cq63plmuuvvn7s.apps.googleusercontent.com';
 const ACCEPTED_TYPES = new Set([
   'image/jpeg',
   'image/jpg',
@@ -360,7 +364,7 @@ function formatStorageSize(totalBytes) {
   return `${size.toFixed(size >= 100 ? 0 : size >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 }
 
-function AdminLogin({ error, loading, onLogin }) {
+function AdminLogin({ error, loading, onLogin, buttonContainerRef }) {
   return (
     <div className="admin-login-card">
       <p className="eyebrow">Admin</p>
@@ -369,15 +373,7 @@ function AdminLogin({ error, loading, onLogin }) {
         관리자만 Google 계정으로 로그인해 사진을 관리할 수 있습니다.
       </p>
       <div className="admin-login-actions">
-        <button
-          type="button"
-          className="primary-button google-login-button"
-          onClick={onLogin}
-          disabled={loading}
-        >
-          {loading ? <LoaderCircle size={18} className="spin" /> : <ShieldCheck size={18} />}
-          Google 계정으로 로그인
-        </button>
+        <div ref={buttonContainerRef} className="google-login-slot" />
       </div>
       {error ? <p className="error-banner admin-error">{error}</p> : null}
       <p className="admin-hint">
@@ -391,9 +387,9 @@ function AdminLogin({ error, loading, onLogin }) {
 }
 
 export default function AdminPage() {
+  const googleButtonRef = useRef(null);
   const fileInputRef = useRef(null);
-  const [session, setSession] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [session, setSession] = useState(() => loadAdminSession());
   const [photos, setPhotos] = useState([]);
   const [storageSummary, setStorageSummary] = useState({
     totalBytes: 0,
@@ -481,33 +477,8 @@ export default function AdminPage() {
   }, [uploading]);
 
   useEffect(() => {
-    const unsubscribe = subscribeToAdminSession((profile) => {
-      setAuthReady(true);
-
-      if (profile && !isAllowedAdminEmail(profile.email)) {
-        const configuredAdminEmails = getConfiguredAdminEmails();
-        setError(
-          configuredAdminEmails.length > 0
-            ? [
-                `허용되지 않은 관리자 계정입니다: ${profile.email}`,
-                '배포 프론트의 `VITE_ADMIN_EMAILS`와 서버의 `ADMIN_EMAILS`에 이 이메일이 포함되어 있는지 확인해 주세요.',
-              ].join('\n')
-            : `허용되지 않은 관리자 계정입니다: ${profile.email}`,
-        );
-        setSession(null);
-        signOutAdmin().catch(() => {});
-        return;
-      }
-
-      setSession(profile);
-    });
-
-    return unsubscribe;
-  }, []);
-
-  useEffect(() => {
     async function loadPhotos() {
-      if (!session) {
+      if (!session?.credential) {
         setPhotos([]);
         setLoading(false);
         return;
@@ -556,9 +527,9 @@ export default function AdminPage() {
     loadPhotos();
   }, [session]);
 
-  async function handleLogin() {
-    if (!isFirebaseConfigured) {
-      setError('Firebase 설정이 없습니다. .env.local에 VITE_FIREBASE_* 값을 추가해 주세요.');
+  async function renderGoogleButton() {
+    if (!GOOGLE_CLIENT_ID) {
+      setError('Google 로그인 설정이 없습니다. .env.local에 VITE_GOOGLE_CLIENT_ID를 추가해 주세요.');
       return;
     }
 
@@ -566,43 +537,62 @@ export default function AdminPage() {
     setError('');
 
     try {
-      const profile = await signInWithGoogle();
-
-      if (!isAllowedAdminEmail(profile?.email)) {
-        const configuredAdminEmails = getConfiguredAdminEmails();
-        setError(
-          configuredAdminEmails.length > 0
-            ? [
-                `허용되지 않은 관리자 계정입니다: ${profile?.email ?? ''}`,
-                '배포 프론트의 `VITE_ADMIN_EMAILS`와 서버의 `ADMIN_EMAILS`에 이 이메일이 포함되어 있는지 확인해 주세요.',
-              ].join('\n')
-            : `허용되지 않은 관리자 계정입니다: ${profile?.email ?? ''}`,
-        );
-        await signOutAdmin().catch(() => {});
+      const google = await loadGoogleIdentityScript();
+      if (!googleButtonRef.current) {
         return;
       }
 
-      // The auth-state subscription will populate the session.
-      setLoading(true);
-      setError('');
-    } catch (signInError) {
-      const code = signInError?.code ?? '';
-      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
-        return;
-      }
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (response) => {
+          const profile = decodeJwt(response.credential);
+          if (!profile?.email) {
+            setError('Google 계정 정보를 확인할 수 없습니다.');
+            return;
+          }
 
-      console.error(signInError);
-      setError(
-        code === 'auth/unauthorized-domain'
-          ? '이 도메인은 Firebase 인증에 허용되지 않았습니다. Firebase 콘솔 > Authentication > Settings > 승인된 도메인에 추가해 주세요.'
-          : signInError instanceof Error
-            ? signInError.message
-            : 'Google 로그인에 실패했습니다.',
-      );
+          if (!isAllowedAdminEmail(profile.email)) {
+            const configuredAdminEmails = getConfiguredAdminEmails();
+            setError(
+              configuredAdminEmails.length > 0
+                ? [
+                    `허용되지 않은 관리자 계정입니다: ${profile.email}`,
+                    '배포 프론트의 `VITE_ADMIN_EMAILS`와 서버의 `ADMIN_EMAILS`에 이 이메일이 포함되어 있는지 확인해 주세요.',
+                  ].join('\n')
+                : `허용되지 않은 관리자 계정입니다: ${profile.email}`,
+            );
+            return;
+          }
+
+          saveAdminSession(profile, response.credential);
+          setSession({ ...profile, credential: response.credential });
+          setLoading(true);
+          setError('');
+        },
+      });
+
+      googleButtonRef.current.innerHTML = '';
+      google.accounts.id.renderButton(googleButtonRef.current, {
+        type: 'standard',
+        theme: 'outline',
+        size: 'large',
+        shape: 'pill',
+        text: 'signin_with',
+        width: 280,
+      });
+    } catch (scriptError) {
+      console.error(scriptError);
+      setError('Google 로그인 버튼을 불러오지 못했습니다.');
     } finally {
       setAuthLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (!session) {
+      renderGoogleButton();
+    }
+  }, [session]);
 
   const sortedPhotos = useMemo(
     () => [...photos].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
@@ -624,7 +614,7 @@ export default function AdminPage() {
   }
 
   function handleAuthExpired(message = '로그인 세션이 만료되었습니다. 다시 로그인해 주세요.') {
-    signOutAdmin().catch(() => {});
+    clearAdminSession();
     setSession(null);
     setPhotos([]);
     setUploading(false);
@@ -1246,7 +1236,7 @@ export default function AdminPage() {
   }
 
   function handleSignOut() {
-    signOutAdmin().catch(() => {});
+    clearAdminSession();
     setSession(null);
     setPhotos([]);
   }
@@ -1259,8 +1249,9 @@ export default function AdminPage() {
       {!session ? (
         <AdminLogin
           error={error}
-          loading={authLoading || !authReady}
-          onLogin={handleLogin}
+          loading={authLoading}
+          onLogin={renderGoogleButton}
+          buttonContainerRef={googleButtonRef}
         />
       ) : (
         <div className="admin-layout">

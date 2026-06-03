@@ -1605,16 +1605,8 @@ a {
   gap: 12px;
 }
 
-.google-login-button {
+.google-login-slot {
   min-height: 44px;
-  padding: 12px 22px;
-  font-size: 0.95rem;
-}
-
-.google-login-button:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-  transform: none;
 }
 
 .admin-login-card .admin-hint,
