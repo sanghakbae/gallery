@@ -27,5 +27,8 @@ services:
         sync: false
       - key: ADMIN_EMAILS
         sync: false
+      # Firebase Admin service-account JSON (paste the whole key file contents).
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
       - key: ALLOWED_ORIGINS
         value: https://gallery.sanghak.kr,https://sanghakbae.github.io

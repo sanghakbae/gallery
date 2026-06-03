@@ -1,4 +1,4 @@
-import { loadAdminSession } from './googleAuth';
+import { getAdminIdToken } from './googleAuth';
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
 
@@ -134,8 +134,9 @@ async function request(path, options = {}) {
   return data;
 }
 
-function getAdminToken() {
-  return loadAdminSession()?.credential ?? '';
+async function authHeader() {
+  const token = await getAdminIdToken();
+  return { Authorization: `Bearer ${token}` };
 }
 
 export function getPublicPhotosPage({ offset = 0, limit = 60 } = {}) {
@@ -162,61 +163,54 @@ export function getPublicSystemStatus() {
   return request('/api/public/status');
 }
 
-export function getAdminPhotos() {
-  return request('/api/admin/photos', {
-    headers: {
-      Authorization: `Bearer ${getAdminToken()}`,
-    },
-  }).then((data) => (data?.photos ?? []).map(withAssetUrl));
+export async function getAdminPhotos() {
+  const data = await request('/api/admin/photos', {
+    headers: await authHeader(),
+  });
+  return (data?.photos ?? []).map(withAssetUrl);
 }
 
-export function getAdminStorageSummary() {
+export async function getAdminStorageSummary() {
   return request('/api/admin/storage-summary', {
-    headers: {
-      Authorization: `Bearer ${getAdminToken()}`,
-    },
+    headers: await authHeader(),
   });
 }
 
-export function uploadAdminPhoto(payload) {
+export async function uploadAdminPhoto(payload) {
   const meta = typeof window !== 'undefined' ? window.btoa(unescape(encodeURIComponent(JSON.stringify(payload.meta)))) : '';
 
-  return request('/api/admin/photos', {
+  const data = await request('/api/admin/photos', {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${getAdminToken()}`,
+      ...(await authHeader()),
       'Content-Type': payload.file.type || 'application/octet-stream',
       'X-Photo-Meta': meta,
     },
     body: payload.file,
-  }).then(withAssetUrl);
+  });
+  return withAssetUrl(data);
 }
 
-export function updateAdminPhoto(photoId, payload) {
-  return request(`/api/admin/photos/${photoId}`, {
+export async function updateAdminPhoto(photoId, payload) {
+  const data = await request(`/api/admin/photos/${photoId}`, {
     method: 'PATCH',
-    headers: {
-      Authorization: `Bearer ${getAdminToken()}`,
-    },
+    headers: await authHeader(),
     body: JSON.stringify(payload),
-  }).then(withAssetUrl);
+  });
+  return withAssetUrl(data);
 }
 
-export function deleteAdminPhoto(photoId) {
+export async function deleteAdminPhoto(photoId) {
   return request(`/api/admin/photos/${photoId}`, {
     method: 'DELETE',
-    headers: {
-      Authorization: `Bearer ${getAdminToken()}`,
-    },
+    headers: await authHeader(),
   });
 }
 
-export function bulkDeleteAdminPhotos(photoIds) {
+export async function bulkDeleteAdminPhotos(photoIds) {
   return request('/api/admin/photos/bulk-delete', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${getAdminToken()}`,
-    },
+    headers: await authHeader(),
     body: JSON.stringify({ photoIds }),
   });
 }
