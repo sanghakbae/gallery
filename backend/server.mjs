@@ -250,8 +250,11 @@ async function ensureDataFiles() {
 
 // In-memory caches to avoid re-reading the entire collection on every public
 // request (Firestore bills per document read). Any write invalidates them.
-const photosCacheTtlMs = 30 * 1000;
-const settingsCacheTtlMs = 60 * 1000;
+// Writes invalidate these caches immediately, so a long TTL is safe and keeps
+// Firestore reads well within the free-tier daily quota: under read-only
+// traffic the full photo list is fetched at most once per TTL window.
+const photosCacheTtlMs = 10 * 60 * 1000;
+const settingsCacheTtlMs = 30 * 60 * 1000;
 let photosCache = null;
 let photosCacheExpiresAt = 0;
 let settingsCache = null;
