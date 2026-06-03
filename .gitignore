@@ -2,6 +2,7 @@ node_modules/
 .env.local
 backend/firebase-service-account.json
 *-service-account*.json
+backend/.r2.env
 backend/data/uploads/
 backend/data/thumbnails/
 dist/

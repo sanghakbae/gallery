@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "sync:from-remote": "node scripts/sync-photos-from-remote.mjs",
-    "migrate:firestore": "node scripts/migrate-to-firestore.mjs"
+    "migrate:firestore": "node scripts/migrate-r2-to-firestore.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1024.0",

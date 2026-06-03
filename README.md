@@ -58,7 +58,7 @@
 6. **프로젝트 설정 > 서비스 계정 > 새 비공개 키 생성**으로 JSON 키 다운로드
    - 로컬: `backend/firebase-service-account.json`으로 저장 (gitignore됨)
    - Render: JSON 내용 전체를 `FIREBASE_SERVICE_ACCOUNT` 환경변수에 붙여넣기
-7. 기존 데이터 이전: `npm run migrate:firestore -- --dry-run`로 확인 후 `npm run migrate:firestore` 실행
+7. 기존 데이터 이전: R2의 `metadata/photos.json`이 권위 있는 소스입니다. R2 자격증명(`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`)을 환경에 설정한 뒤 `npm run migrate:firestore -- --dry-run`로 확인하고 `npm run migrate:firestore` 실행 (Firestore의 기존 사진을 R2 데이터로 교체)
 
 ## Render
 
