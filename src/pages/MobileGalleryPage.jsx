@@ -60,6 +60,7 @@ export default function MobileGalleryPage() {
   const [systemStatus, setSystemStatus] = useState(() => createInitialSystemStatus());
   const [likedPhotoIds, setLikedPhotoIds] = useState(() => loadLikedPhotoIds());
   const slideshowTouchStartRef = useRef(null);
+  const slideshowOpenedAtRef = useRef(0);
   const progressiveLoadGenerationRef = useRef(0);
   const photoCardRefs = useRef(new Map());
   const pendingRestorePhotoIdRef = useRef(null);
@@ -371,9 +372,19 @@ export default function MobileGalleryPage() {
     }
   }
 
+  function openSlideshow() {
+    slideshowOpenedAtRef.current = Date.now();
+    setSlideshowVisible(true);
+  }
+
   function closeSlideshowToGallery(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
+    // Ignore the trailing tap events from the button that opened the slideshow
+    // (mobile dispatches pointerup/click onto the freshly-mounted overlay).
+    if (Date.now() - slideshowOpenedAtRef.current < 500) {
+      return;
+    }
     setSlideshowVisible(false);
     setSelectedPhoto(null);
   }
@@ -443,7 +454,7 @@ export default function MobileGalleryPage() {
               <button
                 type="button"
                 className="secondary-button topbar-action-button"
-                onClick={() => setSlideshowVisible(true)}
+                onClick={openSlideshow}
               >
                 슬라이드 보기
               </button>
