@@ -1,0 +1,19 @@
+name: Keep backend awake
+
+# Render free-tier web services sleep after ~15 min of inactivity, causing a
+# 30-60s cold start on the next visit. Pinging /api/health every ~10 min keeps
+# the service warm so the gallery loads instantly.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health
+        run: |
+          curl -fsS --max-time 90 https://photos-mgmt-system-api.onrender.com/api/health \
+            && echo " — ok" || echo "ping failed (server may be waking up)"
