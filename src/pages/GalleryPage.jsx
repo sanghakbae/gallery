@@ -607,7 +607,7 @@ export default function GalleryPage() {
               aria-label={`${getDisplayPhotoTitle(activeSlide)} 슬라이드쇼 닫기`}
               >
                 <ResilientImage
-                  sources={[activeSlide.thumbUrl, activeSlide.imageUrl]}
+                  sources={[activeSlide.imageUrl, activeSlide.thumbUrl]}
                   alt={getDisplayPhotoTitle(activeSlide)}
                   className="slideshow-image"
                   decoding="async"

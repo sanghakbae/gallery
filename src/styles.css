@@ -207,7 +207,7 @@ a {
 .mobile-public-slideshow-image {
   width: 100%;
   height: min(42vh, 320px);
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .mobile-public-shell.is-slideshow-only .mobile-public-slideshow-image {

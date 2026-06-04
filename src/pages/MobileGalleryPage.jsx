@@ -483,7 +483,7 @@ export default function MobileGalleryPage() {
               onClick={closeSlideshowToGallery}
             >
               <ResilientImage
-                sources={[activeSlide.thumbUrl, activeSlide.imageUrl]}
+                sources={[activeSlide.imageUrl, activeSlide.thumbUrl]}
                 alt={getDisplayPhotoTitle(activeSlide)}
                 className="mobile-public-slideshow-image"
               />
