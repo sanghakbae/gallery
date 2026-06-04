@@ -282,44 +282,62 @@ async function ensureDataFiles() {
   }
 }
 
+// In-memory caches so we don't re-fetch the metadata from R2 (or disk) on every
+// request. Writes refresh the cache, so reads stay consistent.
+const metadataCacheTtlMs = 60 * 1000;
+let photosCache = null;
+let photosCacheExpiresAt = 0;
+let settingsCache = null;
+let settingsCacheExpiresAt = 0;
+
 async function readPhotos() {
-  await ensureDataFiles();
-  if (r2Enabled) {
-    return readJsonObject(photosObjectKey, []);
+  if (photosCache && photosCacheExpiresAt > Date.now()) {
+    return photosCache;
   }
 
-  const raw = await readFile(photosFile, 'utf8');
-  return JSON.parse(raw);
+  await ensureDataFiles();
+  const data = r2Enabled
+    ? await readJsonObject(photosObjectKey, [])
+    : JSON.parse(await readFile(photosFile, 'utf8'));
+  photosCache = data;
+  photosCacheExpiresAt = Date.now() + metadataCacheTtlMs;
+  return data;
 }
 
 async function writePhotos(photos) {
   await ensureDataFiles();
   if (r2Enabled) {
     await writeJsonObject(photosObjectKey, photos);
-    return;
+  } else {
+    await writeFile(photosFile, `${JSON.stringify(photos, null, 2)}\n`, 'utf8');
   }
-
-  await writeFile(photosFile, `${JSON.stringify(photos, null, 2)}\n`, 'utf8');
+  photosCache = photos;
+  photosCacheExpiresAt = Date.now() + metadataCacheTtlMs;
 }
 
 async function readSettings() {
-  await ensureDataFiles();
-  if (r2Enabled) {
-    return readJsonObject(settingsObjectKey, { siteTitle: defaultSiteTitle });
+  if (settingsCache && settingsCacheExpiresAt > Date.now()) {
+    return settingsCache;
   }
 
-  const raw = await readFile(settingsFile, 'utf8');
-  return JSON.parse(raw);
+  await ensureDataFiles();
+  const data = r2Enabled
+    ? await readJsonObject(settingsObjectKey, { siteTitle: defaultSiteTitle })
+    : JSON.parse(await readFile(settingsFile, 'utf8'));
+  settingsCache = data;
+  settingsCacheExpiresAt = Date.now() + metadataCacheTtlMs;
+  return data;
 }
 
 async function writeSettings(settings) {
   await ensureDataFiles();
   if (r2Enabled) {
     await writeJsonObject(settingsObjectKey, settings);
-    return;
+  } else {
+    await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
   }
-
-  await writeFile(settingsFile, `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+  settingsCache = settings;
+  settingsCacheExpiresAt = Date.now() + metadataCacheTtlMs;
 }
 
 function sendJson(response, statusCode, data) {
