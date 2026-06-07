@@ -8,6 +8,7 @@ import {
   MapPin,
   MessageSquareText,
   Search,
+  X,
 } from 'lucide-react';
 import ResilientImage from '../components/ResilientImage';
 import TransitioningModalImage from '../components/TransitioningModalImage';
