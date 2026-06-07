@@ -61,6 +61,7 @@ export default function MobileGalleryPage() {
   const [likedPhotoIds, setLikedPhotoIds] = useState(() => loadLikedPhotoIds());
   const slideshowTouchStartRef = useRef(null);
   const slideshowOpenedAtRef = useRef(0);
+  const wasLandscapeRef = useRef(false);
   const progressiveLoadGenerationRef = useRef(0);
   const photoCardRefs = useRef(new Map());
   const pendingRestorePhotoIdRef = useRef(null);
@@ -230,6 +231,17 @@ export default function MobileGalleryPage() {
     function syncLandscapeSlideshow() {
       const nextLandscape = isMobileLandscapeViewport();
       setIsLandscapeViewport(nextLandscape);
+
+      // Auto-start the slideshow when the phone is rotated to landscape, and
+      // return to the feed when rotated back to portrait. Only act on an actual
+      // orientation change so a manual portrait slideshow isn't disturbed.
+      if (nextLandscape && !wasLandscapeRef.current) {
+        slideshowOpenedAtRef.current = Date.now();
+        setSlideshowVisible(true);
+      } else if (!nextLandscape && wasLandscapeRef.current) {
+        setSlideshowVisible(false);
+      }
+      wasLandscapeRef.current = nextLandscape;
     }
 
     syncLandscapeSlideshow();
@@ -380,11 +392,6 @@ export default function MobileGalleryPage() {
   function closeSlideshowToGallery(event) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
-    // Ignore the trailing tap events from the button that opened the slideshow
-    // (mobile dispatches pointerup/click onto the freshly-mounted overlay).
-    if (Date.now() - slideshowOpenedAtRef.current < 500) {
-      return;
-    }
     setSlideshowVisible(false);
     setSelectedPhoto(null);
   }
@@ -471,14 +478,9 @@ export default function MobileGalleryPage() {
       ) : null}
 
       {slideshowVisible && activeSlide ? (
-        <section
-          className="mobile-public-slideshow"
-          onPointerUp={closeSlideshowToGallery}
-          onClick={closeSlideshowToGallery}
-        >
+        <section className="mobile-public-slideshow">
           <div
             className="mobile-public-slideshow-stage"
-            onPointerDown={(event) => event.stopPropagation()}
             onTouchStart={handleSlideshowTouchStart}
             onTouchEnd={handleSlideshowTouchEnd}
           >
@@ -490,8 +492,12 @@ export default function MobileGalleryPage() {
             <button
               type="button"
               className="mobile-public-slideshow-photo"
-              onPointerUp={closeSlideshowToGallery}
-              onClick={closeSlideshowToGallery}
+              aria-label="다음 사진"
+              onClick={() => {
+                if (hasMultiplePhotos) {
+                  setActiveSlideIndex((current) => (current + 1) % displayPhotos.length);
+                }
+              }}
             >
               <ResilientImage
                 sources={[activeSlide.imageUrl, activeSlide.thumbUrl]}
